@@ -135,6 +135,8 @@ python tools\make_builtin_pets.py
 幂等生成 `idle`(4) / `talk`(2) / `eat`(4) / `sleepy`(2) / `spin`(8) 共 20 帧并写回
 `petpack.json`（只覆盖自己管理的 5 个 key，不动 `walk` / `run` / 性格 / 配色）。
 
+![有财新增动作帧](images/youcai-motion-frames.jpg)
+
 ```powershell
 # 项目里的导出素材
 services\petforge\.venv\Scripts\python.exe tools\generate_pet_motion_frames.py

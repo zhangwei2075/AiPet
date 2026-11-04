@@ -70,6 +70,24 @@ SIDE_PARTS: dict[str, tuple[float, float, float, float, float, float]] = {
     "tail": (124, 250, 48, 60, 170, 270),
 }
 
+# 纯侧面标定（exports/有财/_ai/side_profile_raw_cut.png，90° 正侧视、头朝右）。
+# 和 SIDE 的区别：身体轴水平展开，四条腿沿 x 前后排开、上下错位（远侧稍高），
+# 后腿不再被卫衣下摆挡住 —— 这是步幅能拉大的前提。坐标不能和 SIDE 互换。
+# 数值由轮廓的行 / 列投影实测（y=490 行四段腿区间：38-119 / 250-341 / 349-394，
+# 加 y=460 的 129-212），不要照着网格目测，正侧视的腿是斜的，目测必然偏。
+PROFILE_PARTS: dict[str, tuple[float, float, float, float, float, float]] = {
+    "head": (390, 142, 92, 88, 332, 236),
+    "ear_left": (392, 130, 44, 50, 398, 84),
+    "ear_right": (440, 112, 26, 30, 432, 90),
+    "mouth": (458, 180, 28, 26, 444, 174),
+    "body": (295, 305, 112, 105, 295, 325),
+    "front_left": (370, 452, 30, 48, 366, 382),
+    "front_right": (290, 458, 48, 52, 300, 386),
+    "hind_left": (85, 452, 42, 58, 112, 384),
+    "hind_right": (170, 438, 40, 54, 182, 380),
+    "tail": (95, 250, 55, 68, 150, 296),
+}
+
 # Petdex 标准帧数：idle 6 / run-right 8 / run-left 8 / jump 5 / failed 8 / waiting 6 ...
 FRAME_COUNTS = {
     "idle": 6,
@@ -103,14 +121,36 @@ _YS, _XS = _GRID[0], _GRID[1]
 
 
 class Rig:
-    """一套部件标定：几何定义 + 预计算的权重图与采样窗口。"""
+    """一套部件标定：几何定义 + 预计算的权重图与采样窗口。
 
-    def __init__(self, parts: dict[str, tuple[float, float, float, float, float, float]]) -> None:
+    `rigid` 里的部件改用「椭圆内饱和」的权重：椭圆中心 78% 半径内权重恒为 1，
+    到椭圆边界快速降到 0。肢体必须用这种，否则边界上的半权重会让原位置的肢体
+    和旋转后的肢体双重曝光，叠出一道半透明的白色描边弧线（看起来像拖尾细丝）。
+    """
+
+    def __init__(
+        self,
+        parts: dict[str, tuple[float, float, float, float, float, float]],
+        rigid: tuple[str, ...] = (),
+    ) -> None:
         self.parts = parts
         self.weights: dict[str, np.ndarray] = {}
         self.windows: dict[str, tuple[int, int, int, int]] = {}
         for name, (cx, cy, rx, ry, px, py) in parts.items():
             r2 = ((_XS - cx) / rx) ** 2 + ((_YS - cy) / ry) ** 2
+            # 采样窗口：按枢轴旋转后会偏出原区域，留足余量（rigid 分支也要有）
+            margin = 56
+            self.windows[name] = (
+                int(max(0, min(cx - rx, px - rx) - margin)),
+                int(min(SIZE, max(cx + rx, px + rx) + margin)),
+                int(max(0, min(cy - ry, py - ry) - margin)),
+                int(min(SIZE, max(cy + ry, py + ry) + margin)),
+            )
+            if name in rigid:
+                t = np.clip((1.0 - r2) / 0.22, 0.0, 1.0)
+                self.weights[name] = (t * t * (3.0 - 2.0 * t)).astype(np.float32)
+                continue
+
             # 超高斯：部件内部接近刚性、边界平滑过渡。
             # 指数取 1.5 而不是 2 —— 太硬会在旋转时把交界处撕成「幽灵肢体」。
             w = np.exp(-0.5 * np.power(r2, 1.5)).astype(np.float32)
@@ -120,18 +160,12 @@ class Rig:
             t = np.clip((1.6 - r2) / 0.6, 0.0, 1.0)
             self.weights[name] = (w * (t * t * (3.0 - 2.0 * t))).astype(np.float32)
 
-            # 采样窗口：按枢轴旋转后会偏出原区域，留足余量
-            margin = 56
-            self.windows[name] = (
-                int(max(0, min(cx - rx, px - rx) - margin)),
-                int(min(SIZE, max(cx + rx, px + rx) + margin)),
-                int(max(0, min(cy - ry, py - ry) - margin)),
-                int(min(SIZE, max(cy + ry, py + ry) + margin)),
-            )
 
-
+# 腿和尾巴是旋转幅度最大的部件，必须用「椭圆内饱和」权重；
+# 软高斯在边界上留半权重，会让原位描边和旋转后描边双重曝光，拖出白色细丝。
 RIG_FRONT = Rig(FRONT_PARTS)
-RIG_SIDE = Rig(SIDE_PARTS)
+RIG_SIDE = Rig(SIDE_PARTS, rigid=("front_left", "front_right", "hind_left", "hind_right", "tail"))
+RIG_PROFILE = Rig(PROFILE_PARTS, rigid=("front_left", "front_right", "hind_left", "hind_right", "tail"))
 
 
 class Part:
@@ -313,16 +347,26 @@ def _run(phase: float) -> list[Part]:
     return parts
 
 
-def _gait_side(phase: float, amp: float, lift: float, bob: float, dim_far: float) -> list[Part]:
+def _gait_side(
+    phase: float,
+    table: dict[str, tuple[float, float, float, float, float, float]],
+    amp: float,
+    lift: float,
+    bob: float,
+    dim_far: float,
+) -> list[Part]:
     """侧面视角的四足交替：腿绕肩 / 胯**前后摆动**，对角两两成对。
 
     正面那套「竖直抬脚 + 内收」搬到侧面会读成原地踏步 —— 侧面能看见腿的倾角，
     所以主运动只能是绕枢轴的前后摆（正角度 = 向前，底图朝右）。
     抬脚只发生在**摆动相**（腿从后往前的半个周期，即 cos > 0），支撑相脚掌贴地。
     远侧两条腿压暗并略微收窄，做出前后景深。
+
+    `table` 传 SIDE_PARTS（3/4 视角）或 PROFILE_PARTS（纯侧面），
+    两套坐标按各自底图量取，枢轴位置不同，不能混用。
     """
     def leg(name: str, ph: float, weight: float, far: bool = False) -> Part:
-        cx, cy, _rx, _ry, px, py = SIDE_PARTS[name]
+        cx, cy, _rx, _ry, px, py = table[name]
         theta = amp * math.sin(ph)
         ca, sa = math.cos(theta), math.sin(theta)
         dx, dy = cx - px, cy - py
@@ -363,12 +407,15 @@ def _gait_side(phase: float, amp: float, lift: float, bob: float, dim_far: float
     return parts
 
 
-def _walk_side(phase: float) -> list[Part]:
-    return _gait_side(phase, amp=0.27, lift=10.0, bob=4.0, dim_far=0.90)
+def _walk_side(phase: float, table: dict = SIDE_PARTS) -> list[Part]:
+    # amp 上限的由来：椭圆遮罩固定、内容随腿旋转，摆幅一大，腿的白描边
+    # 就会扫进 vacated 区域拖出弧形细丝（0.27 rad 实测明显）。0.14 时
+    # 脚掌位移约 10px，细丝藏在腿自身轮廓里，摆动读感靠 lift 补。
+    return _gait_side(phase, table=table, amp=0.14, lift=16.0, bob=4.0, dim_far=0.90)
 
 
-def _run_side(phase: float) -> list[Part]:
-    parts = _gait_side(phase, amp=0.36, lift=18.0, bob=6.0, dim_far=0.88)
+def _run_side(phase: float, table: dict = SIDE_PARTS) -> list[Part]:
+    parts = _gait_side(phase, table=table, amp=0.19, lift=24.0, bob=6.0, dim_far=0.88)
     for part in parts:
         if part.name == "body":
             # 奔跑时躯干前倾、整体略微前移
@@ -563,7 +610,9 @@ def build(key: str, index: int, count: int) -> np.ndarray:
     yaw = index / count
     # 走路 / 奔跑优先用侧面底图：正面坐姿的四条腿在画面上叠在一起，
     # 无论怎么摆都读不出「四条腿交替」，这是「只有一只脚在动」的根因。
+    # 纯侧面（90°）优先于 3/4 —— 后腿不被卫衣下摆遮住，步幅才拉得开。
     side = SRC_SIDE is not None and key in ("walk", "run")
+    profile = SRC_PROFILE is not None and key in ("walk", "run")
     if key == "spin":
         if SPIN_VIEWS is not None:
             return _spin_frame(yaw).round().astype(np.uint8)
@@ -573,10 +622,14 @@ def build(key: str, index: int, count: int) -> np.ndarray:
     if key == "idle":
         return compose(SRC, _idle(phase))
     if key == "walk":
+        if profile:
+            return compose(SRC_PROFILE, _walk_side(phase, PROFILE_PARTS), rig=RIG_PROFILE)
         if side:
             return compose(SRC_SIDE, _walk_side(phase), rig=RIG_SIDE)
         return compose(SRC, _walk(phase))
     if key == "run":
+        if profile:
+            return compose(SRC_PROFILE, _run_side(phase, PROFILE_PARTS), rig=RIG_PROFILE)
         if side:
             return compose(SRC_SIDE, _run_side(phase), rig=RIG_SIDE)
         return compose(SRC, _run(phase))
@@ -599,15 +652,17 @@ def build(key: str, index: int, count: int) -> np.ndarray:
 
 
 SRC: np.ndarray = np.zeros((SIZE, SIZE, 4), dtype=np.float32)
-# 侧面四足底图；缺省时 walk / run 退回正面标定（效果差，但不会崩）。
+# 侧前 3/4 四足底图；缺省时 walk / run 退回纯侧面，再缺就退回正面标定（效果差，但不会崩）。
 SRC_SIDE: np.ndarray | None = None
+# 纯侧面（90°）四足底图，优先用于 walk / run。
+SRC_PROFILE: np.ndarray | None = None
 # 转圈用的四个视角：正面 / 坐姿侧前 / 坐姿背面 / 另一侧（侧前的水平镜像）。
 # 齐了才走真实视角，缺一张就退回 `_spin` 的单图蒙皮（180° 仍是正脸）。
 SPIN_VIEWS: list[np.ndarray] | None = None
 
 
 def main() -> None:
-    global SRC, SRC_SIDE, SPIN_VIEWS
+    global SRC, SRC_SIDE, SRC_PROFILE, SPIN_VIEWS
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--pet-dir",
@@ -619,7 +674,14 @@ def main() -> None:
         "--side-view",
         type=Path,
         default=None,
-        help="侧面四足底图；缺省自动找 <pet-dir>/_ai/side_raw_cut.png，找不到就退回正面标定",
+        help="侧前 3/4 四足底图；缺省自动找 <pet-dir>/_ai/side_raw_cut.png",
+    )
+    parser.add_argument(
+        "--profile-view",
+        type=Path,
+        default=None,
+        help="纯侧面（90°）四足底图，优先给 walk / run 用；"
+        "缺省自动找 <pet-dir>/_ai/side_profile_raw_cut.png",
     )
     parser.add_argument(
         "--no-spin-views",
@@ -642,9 +704,17 @@ def main() -> None:
         if side.size != (SIZE, SIZE):
             side = side.resize((SIZE, SIZE), Image.Resampling.LANCZOS)
         SRC_SIDE = np.asarray(side, dtype=np.float32)
-        print(f"侧面底图：{side_path.name}（walk / run 走侧面标定）")
+        print(f"侧前底图：{side_path.name}（3/4 视角，纯侧面缺失时兜底）")
     else:
-        print("未找到侧面底图，walk / run 退回正面标定（四条腿会叠在一起）")
+        print("未找到侧前底图，walk / run 退回正面标定（四条腿会叠在一起）")
+
+    profile_path = args.profile_view or (pet_dir / "_ai" / "side_profile_raw_cut.png")
+    if profile_path.exists():
+        profile = Image.open(profile_path).convert("RGBA")
+        if profile.size != (SIZE, SIZE):
+            profile = profile.resize((SIZE, SIZE), Image.Resampling.LANCZOS)
+        SRC_PROFILE = np.asarray(profile, dtype=np.float32)
+        print(f"纯侧面底图：{profile_path.name}（walk / run 走正侧视标定）")
 
     # 转圈的视角必须和 base.png **姿态一致**：base 是坐姿，所以这里只能用坐姿侧前 / 坐姿背面。
     # 走路用的 side_raw 是四足站姿，混进来会在转身中途从坐姿跳成站姿。

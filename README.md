@@ -35,7 +35,7 @@
 | 语音朗读（系统 TTS，可开关） | 已完成 |
 | Android 系统悬浮窗（浮在其它 App 之上） | **APK 构建通过**（60.3MB）；Android 15 模拟器已验证跟随当前宠物、点击互动、覆盖桌面，真机待验证 |
 | 托盘（nativeapi 新 API） | 已完成，`tray_manager` 0.8 原生接口 |
-| 打包（MSIX / 压缩包）、CI（GitHub Actions） | 已完成，见下方「打包」与 `.github/workflows/ci.yml` |
+| 打包（MSIX / 压缩包 / 免安装绿色版）、CI（GitHub Actions） | 已完成，见下方「打包」与 `.github/workflows/ci.yml` |
 | 自动更新（版本检查 / 下载 / sha256 校验 / 启动安装） | 已完成，10 个单元测试 |
 | Petdex 宠物导入（本机 `~/.codex/pets`，真帧动画） | 已完成，3 个单元测试 |
 | 主动行为（按性格搭话 / 讨食 / 求摸 / 小跑，设置可关） | 已完成，7 个单元测试 |
@@ -116,6 +116,25 @@ AiPet/
    产物在 `app\build\windows\x64\runner\Release\`（`momopet.msix` 约 22MB）。
    MSIX 用的是自动生成的测试证书：目标机器要么开着开发者模式，要么先信任该证书；
    有正式证书时改 `pubspec.yaml` 里的 `msix_config` 即可。
+
+### 只想双击运行（两种免安装形态）
+
+先跑一次 `scripts\build-windows.ps1`，然后按需选一种：
+
+| 形态 | 命令 | 产物 | 怎么用 |
+| --- | --- | --- | --- |
+| 绿色版目录 | `scripts\build-portable.ps1` | `dist\MomoPet\` + `MomoPet-release.zip` | 双击目录里的 `momopet.exe`（或中文名副本 `摸摸宠.exe`），整个文件夹一起拷贝 |
+| 单文件 exe | `scripts\build-single-exe.ps1` | `dist\MomoPet.exe`（约 26MB） | 单独拷到任意位置，双击即用 |
+
+两个脚本都幂等可重跑。绿色版会跳过 msix / pdb / lib 并附上 `LICENSE`，零额外依赖；
+单文件版需要 Python 3.9+ 与 PyInstaller（脚本会自动安装），首次双击把内嵌的绿色版
+按内容哈希释放到 `%LOCALAPPDATA%\MomoPet\runtime\<hash>\` 再启动，之后直接启动，
+exe 内容变化时自动释放新版本，异常写同目录的 `launcher.log`。
+
+> **为什么 Flutter 原生 exe 不能单独拷走**：运行时必须和 `flutter_windows.dll`、
+> 6 个插件 dll、`data\app.so` 与 `data\flutter_assets` 在同一目录。
+> 单文件版的本质就是把这个目录打包进 exe、运行时释放，所以首次启动会慢 1~2 秒。
+> 不想带 Python 打包链路时用绿色版即可，效果一样。
 
 > 国内网络建议先设置镜像（脚本已内置默认值）：
 > `PUB_HOSTED_URL=https://pub.flutter-io.cn`、`FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn`。

@@ -21,3 +21,4 @@ services/petforge/tests/out/
 MomoPet-release.zip
 app/build/app/outputs/
 *.msix
+dist/

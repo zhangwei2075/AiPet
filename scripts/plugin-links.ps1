@@ -33,10 +33,21 @@ $linkDir = Join-Path $AppDir 'windows\flutter\ephemeral\.plugin_symlinks'
 New-Item -ItemType Directory -Path $linkDir -Force | Out-Null
 
 $created = 0
+$replaced = 0
 foreach ($plugin in $plugins) {
     $target = $plugin.path.TrimEnd('\', '/')
     $link = Join-Path $linkDir $plugin.name
-    if (Test-Path -LiteralPath $link) { continue }
+    if (Test-Path -LiteralPath $link) {
+        $item = Get-Item -LiteralPath $link -Force
+        $isReparsePoint = ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0
+        if ($isReparsePoint) { continue }
+
+        # 构建失败时 Flutter 会留下一个空的「普通目录」。它不是链接，
+        # 下次构建会先删掉它、再尝试创建真符号链接，在没开开发者模式的机器上
+        # 必然报 ERROR_PRIVILEGE_NOT_HELD。这里直接换成目录联接。
+        Remove-Item -LiteralPath $link -Recurse -Force -Confirm:$false
+        $replaced++
+    }
 
     try {
         New-Item -ItemType Junction -Path $link -Target $target | Out-Null
@@ -47,4 +58,4 @@ foreach ($plugin in $plugins) {
     }
 }
 
-Write-Step "插件目录联接就绪（新建 $created 个，共 $($plugins.Count) 个 Windows 插件）"
+Write-Step "插件目录联接就绪（新建 $created 个，替换 $replaced 个，共 $($plugins.Count) 个 Windows 插件）"

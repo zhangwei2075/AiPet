@@ -150,3 +150,9 @@ APK 已出包（JDK 17 + Android SDK 36，`flutter build apk --release` →
 - 初始化 Git 仓库并做基线提交；新增 `LICENSE`（MIT）、`CHANGELOG.md`；忽略发布产物。
 - 文档与代码对齐：用例数 93、`scale` 范围、行数、章节编号，删除重复的 nuget 段落。
 - 新增 7 个单元测试（主动行为权重 / 开关持久化 / eat 姿态）；`flutter analyze` 零问题。
+- 交付形态：`scripts/build-portable.ps1` 出免安装绿色版（含中文名 exe 副本），
+  `scripts/build-single-exe.ps1` 出单文件 `MomoPet.exe`（PyInstaller 自释放启动器，
+  已实测从空目录单独运行可拉起宠物）。产物在 `dist/`，不进版本库。
+- 修正 `scripts/plugin-links.ps1`：构建失败留下的「空普通目录」不再是链接，
+  Flutter 会删掉它去建真符号链接而报 `ERROR_PRIVILEGE_NOT_HELD`；现在识别 reparse point
+  并替换为目录联接，Flutter 3.47.9 重新构建通过（54.4s）。

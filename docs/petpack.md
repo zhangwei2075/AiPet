@@ -149,3 +149,11 @@ services\petforge\.venv\Scripts\python.exe tools\generate_pet_motion_frames.py `
 Windows 上应用支持目录来自 `windows/runner/Runner.rc` 的 CompanyName / ProductName，
 当前是 `%APPDATA%\MomoPet\MomoPet\pets`。脚本每次运行会覆盖同名帧，但不会删除任何文件；
 批量改动前建议先备份 `petpack.json`。
+
+> **转圈为什么不用「压扁翻牌」**：早期把 `scaleX` 压到 `|cos θ|`，90° / 270° 两帧
+> 只剩约 100px 宽（正常 338px），看起来像一根棍子。现在改成
+> 「左右倾斜 ±16° + 原地小跳 + 第 4/5 帧镜像翻面」，`scaleX` 最窄 0.86，
+> 8 帧都是完整形象。这是几何表达问题，换 AI 生成侧身帧并不能自动解决：
+> 低 denoise 的 img2img 很难让 8 帧保持同一张脸和同一件卫衣。
+> 真要上 AI，更划算的是用已有的 `hop` / `walk` 精修帧重组，或按
+> [宠物动画素材生成](pet-generation.md) 走 ComfyUI 补帧。

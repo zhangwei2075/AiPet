@@ -129,18 +129,25 @@ def _sleepy_frames(base: Image.Image) -> list[Image.Image]:
 
 
 def _spin_frames(base: Image.Image) -> list[Image.Image]:
-    """翻牌式转圈：宽度按 |cos| 压缩，过 90° 后镜像表示背面。"""
+    """原地转圈：靠倾斜 + 小跳 + 半程翻面表达转身，不做极端宽度压缩。
+
+    早期版本用「翻牌」思路把宽度压到 |cos|，90°/270° 那两帧会被压成一根
+    100px 宽的竖条（正常约 338px），既不象侧身也不好看。现在最窄只到 0.86，
+    每帧都是完整形象；第 4/5 帧之间镜像切换，配合左右倾斜形成转身瞬间。
+    """
+    angles = (0.0, -9.0, -16.0, -7.0, 7.0, 16.0, 9.0, 0.0)
+    lifts = (0.0, -9.0, -18.0, -8.0, -8.0, -18.0, -9.0, 0.0)
+    widths = (1.0, 0.94, 0.86, 0.92, 0.92, 0.86, 0.94, 1.0)
     frames = []
     for i in range(8):
-        theta = 2 * math.pi * i / 8
-        width = 0.30 + 0.70 * abs(math.cos(theta))
         frames.append(
             _compose(
                 base,
-                scale_x=width,
-                scale_y=1 - 0.02 * abs(math.sin(theta)),
-                offset_y=-8 * abs(math.sin(theta)),
-                mirror=math.cos(theta) < 0,
+                scale_x=widths[i],
+                scale_y=1 - 0.02 * abs(lifts[i]) / 18,
+                offset_y=lifts[i],
+                angle=angles[i],
+                mirror=i >= 4,
             )
         )
     return frames

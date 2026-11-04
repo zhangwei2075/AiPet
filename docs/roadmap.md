@@ -139,6 +139,8 @@ APK 已出包（JDK 17 + Android SDK 36，`flutter build apk --release` →
   `idle`(4) / `talk`(2) / `eat`(4) / `sleepy`(2) / `spin`(8) 共 20 帧，`PetMotion` 新增 `eat`；
   `PetStage` 在有 idle 呼吸帧时让位给表情 overlay，避免盖住 happy / love 等情绪。
   帧已同步到 `exports/有财` 与桌面端四个有财宠物目录。
+  转圈帧放弃「宽度压到 |cos|」的翻牌做法（90°/270° 会被压成 100px 竖条），
+  改为倾斜 + 小跳 + 半程镜像；详见 [petpack.md](petpack.md#方式四给已有的单图宠物补动作帧)。
 - **数据修复**：桌面端有财宠物包原本声明 `run` 动画却缺 `run_*.png`，已补齐；
   原 `petpack.json` 备份为同目录 `petpack.json.bak`。
 - **设置**：新增 `proactive`（默认开、旧配置缺字段自动回落），开关变化会重排空闲定时器。

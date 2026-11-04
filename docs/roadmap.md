@@ -78,13 +78,14 @@ APK 已出包（JDK 17 + Android SDK 36，`flutter build apk --release` →
   详见 [pet-generation.md](pet-generation.md)。未开启动画时仍回退到纯程序化姿态。
 - 记忆是「摘要级」的，没有用小模型做周期性压缩；话题提取只是关键词正则，够用但不聪明。
 - 语音没有做「气泡还在、语音已结束」的对齐，也没有连续消息打断；长句不按标点切段。
-- 没有「宠物之间互动」「定时提醒」这类主动行为。
+- 主动行为已落地：按性格搭话 / 讨食 / 求摸 / 小跑，每 3~6 分钟一次，设置页「主动互动」可关；
+  「宠物之间互动」「定时提醒」仍未做。
 
 ## 4. 工程质量
 
-- 目前是 86 个 Dart 用例（含姿态数学、多显示器边界、自动更新、Petdex 导入与 PetForge 端到端，服务未启动自动跳过）
+- 目前是 93 个 Dart 用例（含姿态数学、多显示器边界、自动更新、Petdex 导入、主动行为与 PetForge 端到端，服务未启动自动跳过）
   + 9 个 PetForge 单元测试（帧去重、图集、ComfyUI 占位符注入、假服务全链路）；没有 widget 测试和 Windows 端到端测试。
-- 拆分前 `app_controller.dart` 1032 行、`panel_view.dart` 1546 行，按「宠物行为 / 聊天 / 生成」拆分 coordinator 后行数见本文件末尾的完善记录。
+- 拆分前 `app_controller.dart` 1032 行、`panel_view.dart` 1546 行；拆分后见下方「本轮完善记录」。
 - CI 已有 `.github/workflows/ci.yml`（analyze + test + Windows 构建 + PetForge CLI 冒烟），后续可补 widget 测试到流水线。
 - 退出崩溃已修（2026-10-31）：托盘「退出」原走 `windowManager.destroy()`（内部 `PostQuitMessage(0)`，窗口未销毁即退出消息循环），runner 拆卸视图控制器时窗口过程向已释放引擎转发消息导致 APPCRASH（flutter_windows.dll）；改为 `close()` 走 WM_CLOSE 自然销毁路径，实测干净退出。
 - 朗读闪退已修（2026-10-31）：flutter_tts 4.2.5 Windows 原生层把 Dart result 存进成员
@@ -110,3 +111,40 @@ APK 已出包（JDK 17 + Android SDK 36，`flutter build apk --release` →
 - **正式代码签名证书**：MSIX 目前用测试证书，正式分发需要购买证书并替换 `msix_config`。
 - **ComfyUI checkpoint**：本机已装 ComfyUI Desktop，但 `models/checkpoints` 为空；
   默认程序化动画不依赖它，只有想用 AI 图生图补帧时才需要下载模型（SD1.5 约 2GB / SDXL 约 6.5GB）。
+
+## 6. 本轮完善记录（2026-11-04）
+
+### 架构拆分
+
+| 文件 | 拆分后行数 | 职责 |
+| --- | --- | --- |
+| `state/app_controller.dart` | 1032 → 443 | 依赖装配、初始化、窗口形态、设置与退出 |
+| `state/pet_behavior.dart` | 493 | 互动、拖动、空闲定时与主动行为 |
+| `state/chat_coordinator.dart` | 146 | 聊天收发、流式输出、历史持久化 |
+| `state/generation_coordinator.dart` | 162 | 照片生成与收养 |
+| `state/update_coordinator.dart` | 187 | 自动更新、Petdex 导入、悬浮窗开关 |
+| `state/controller_types.dart` | 47 | 枚举 + 主动行为权重纯函数 |
+
+四个 coordinator 是 `on ChangeNotifier` 的 mixin，共享 `AppController` 的字段，
+对外 API 完全不变（`app_controller.dart` 继续 `export` 枚举），UI 与测试无需改动。
+`panel_view.dart` 1546 → 76 行，拆成 `panel_chrome.dart`（179）/`gallery_tab.dart`（436）/
+`create_tab.dart`（486）/`settings_tab.dart`（420），入口路径不变。
+
+### 新功能
+
+- **主动行为**：`ProactiveKind { chat, treat, cuddle, zoomies }`，权重按 `personality.traits`
+  计算（贪吃→讨食、黏人→求摸、元气→小跑），3~6 分钟触发一次；设置页「主动互动」可关，
+  面板「逗一下」可立即触发。讨食期间点击 = 投喂，好感 +3 并播开心跳。
+- **有财动作帧**：`tools/generate_pet_motion_frames.py` 用 Pillow 从 `base.png` 幂等生成
+  `idle`(4) / `talk`(2) / `eat`(4) / `sleepy`(2) / `spin`(8) 共 20 帧，`PetMotion` 新增 `eat`；
+  `PetStage` 在有 idle 呼吸帧时让位给表情 overlay，避免盖住 happy / love 等情绪。
+  帧已同步到 `exports/有财` 与桌面端四个有财宠物目录。
+- **数据修复**：桌面端有财宠物包原本声明 `run` 动画却缺 `run_*.png`，已补齐；
+  原 `petpack.json` 备份为同目录 `petpack.json.bak`。
+- **设置**：新增 `proactive`（默认开、旧配置缺字段自动回落），开关变化会重排空闲定时器。
+
+### 工程
+
+- 初始化 Git 仓库并做基线提交；新增 `LICENSE`（MIT）、`CHANGELOG.md`；忽略发布产物。
+- 文档与代码对齐：用例数 93、`scale` 范围、行数、章节编号，删除重复的 nuget 段落。
+- 新增 7 个单元测试（主动行为权重 / 开关持久化 / eat 姿态）；`flutter analyze` 零问题。

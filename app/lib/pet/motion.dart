@@ -38,7 +38,7 @@ class PetPose {
       );
 }
 
-enum PetMotion { idle, hop, drag, drop, angry, sleepy, talk, pat, spin, walk, run, lie }
+enum PetMotion { idle, hop, drag, drop, angry, sleepy, talk, pat, spin, walk, run, lie, eat }
 
 /// 纯函数动画引擎：不依赖 Flutter 渲染，方便单元测试。
 class MotionEngine {
@@ -76,7 +76,20 @@ class MotionEngine {
         return run(time);
       case PetMotion.lie:
         return lie(time, phase);
+      case PetMotion.eat:
+        return eat(time, phase);
     }
+  }
+
+  /// 讨食 / 进食：小幅点头，身体跟着一顿一顿。
+  /// 有 `eat` 逐帧动画时这层姿态只叠加 25%，由帧本身承担主要表现。
+  static PetPose eat(double time, double phase) {
+    final nod = math.sin(time * 9 + phase).abs();
+    return PetPose(
+      offsetY: 3.5 * nod,
+      scaleY: 1 - 0.018 * nod,
+      rotation: 0.022 * math.sin(time * 9 + phase),
+    );
   }
 
   static PetPose idle(double time, double phase) {

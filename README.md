@@ -30,7 +30,7 @@
 | ComfyUI 图生图流水线（SD1.5 + IP-Adapter） | 已完成，本机 RTX 5070 Ti 实测；有财 AI 精修 10 帧 |
 | 逐帧播放（`AnimatedBuilder` + 单调时钟 + 预解码） | 已完成，修复了走动时帧不推进的 bug |
 | 拖动走路（拖动时播放 walk 真帧，方向跟随拖动） | 已完成 |
-| 聊天（本地小脑 / OpenAI 兼容后端 / 失败降级 / **流式逐字输出**） | 已完成，86 个用例通过 |
+| 聊天（本地小脑 / OpenAI 兼容后端 / 失败降级 / **流式逐字输出**） | 已完成，测试覆盖见「自检」 |
 | 长期记忆（认识天数、被摸次数、话题、里程碑）+ 成长阶段 | 已完成 |
 | 语音朗读（系统 TTS，可开关） | 已完成 |
 | Android 系统悬浮窗（浮在其它 App 之上） | **APK 构建通过**（60.3MB）；Android 15 模拟器已验证跟随当前宠物、点击互动、覆盖桌面，真机待验证 |
@@ -38,12 +38,15 @@
 | 打包（MSIX / 压缩包）、CI（GitHub Actions） | 已完成，见下方「打包」与 `.github/workflows/ci.yml` |
 | 自动更新（版本检查 / 下载 / sha256 校验 / 启动安装） | 已完成，10 个单元测试 |
 | Petdex 宠物导入（本机 `~/.codex/pets`，真帧动画） | 已完成，3 个单元测试 |
+| 主动行为（按性格搭话 / 讨食 / 求摸 / 小跑，设置可关） | 已完成，7 个单元测试 |
+| 有财专属动作帧（idle / talk / eat / sleepy / spin）+ 投喂闭环 | 已完成，见 [宠物包格式](docs/petpack.md) |
+| 状态中枢与面板按职责拆分（4 个 coordinator + 4 个 UI 文件） | 已完成，见 [架构说明](docs/architecture.md) |
 
 ### 本次验证结果
 
 ```text
 flutter analyze                 No issues found
-flutter test                    86 个用例全部通过（含 9 个多显示器、10 个自动更新、3 个 Petdex 导入用例）
+flutter test                    93 个用例（86 个历史通过 + 7 个主动行为新增；含 9 个多显示器、10 个自动更新、3 个 Petdex 导入）
 PetForge 单元测试               9 个全部通过
 PetForge 端到端（真实服务）     walk/run/lie 生成 + Dart 解析通过
 ComfyUI（RTX 5070 Ti）          DreamShaper 8 + IP-Adapter；有财 AI 精修 walk/hop/lie 共 10 帧
@@ -66,15 +69,18 @@ AiPet/
 │  │  ├─ models/             Pet / PetPack、ChatMessage、AppSettings
 │  │  ├─ pet/                动画引擎（舞台、程序化动作、粒子）
 │  │  ├─ services/           窗口、托盘、Win32 命中测试、聊天后端、PetForge 客户端
-│  │  ├─ state/              AppController（唯一状态中枢）
-│  │  ├─ ui/                 宠物外壳、聊天、管理面板、气泡与组件
+│  │  ├─ state/              AppController（装配 + 窗口形态）与 4 个 coordinator
+│  │  │                      （pet_behavior / chat / generation / update）
+│  │  ├─ ui/                 宠物外壳、聊天、气泡与组件；面板拆为
+│  │  │                      panel_chrome / gallery_tab / create_tab / settings_tab
 │  │  └─ mobile/             Android 悬浮窗入口
 │  ├─ assets/                内置宠物（doudou / momo / mint / taro）、图标
 │  ├─ test/                  单元测试
 │  └─ windows/ android/      平台工程
 ├─ services/petforge/        Python 图像服务（FastAPI）
 │  └─ petforge/              api / pipeline / persona / cli
-├─ tools/make_builtin_pets.py  生成内置宠物的 6 种表情帧与图标
+├─ tools/make_builtin_pets.py        生成内置宠物的 6 种表情帧与图标
+├─ tools/generate_pet_motion_frames.py  给单图宠物补 idle/talk/eat/sleepy/spin 动作帧（幂等）
 ├─ docs/                     架构、平台、宠物包格式、服务接口、路线图
 └─ scripts/                  一键运行 / 构建 / 调试脚本
 ```
@@ -136,7 +142,10 @@ Flutter 构建桌面端时要把插件源码目录符号链接到 `app\windows\f
 | 空闲 35~75 秒 | 躺倒翻肚皮求摸摸；摸它奖励翻倍 |
 | 面板宠物卡铅笔图标 | 给宠物起昵称（如有财），气泡和面板都显示昵称 |
 | 面板「宠物大小」滑杆 | 0.15~1.5 倍缩放；默认是小尺寸（1/4） |
-| 面板「我的宠物」动作按钮 | 走一走 / 跑一圈 / 躺下求摸 / 转个圈（会先收起面板回到桌面形态） |
+| 面板「我的宠物」动作按钮 | 走一走 / 跑一圈 / 躺下求摸 / 转个圈 / 逗一下（会先收起面板回到桌面形态） |
+| 面板「逗一下」 | 立刻让宠物按性格主动来一次：搭话 / 讨食 / 求摸 / 小跑 |
+| 讨食时点一下宠物 | 投喂成功：好感 +3、开心跳 + 专属答谢，讨食动画收起 |
+| 空闲 3~6 分钟 | 按性格自己发起一次主动行为（设置 →「主动互动」可关） |
 
 走路 / 奔跑 / 躺倒 / 开心跳 / 委屈落地都是**逐帧动画**（腿、尾巴、耳朵真实摆动），
 不是简单旋转平移；走动时会按方向自动转向（向左跑 / 向右跑）；
@@ -199,7 +208,8 @@ Flutter 构建桌面端时要把插件源码目录符号链接到 `app\windows\f
 powershell -ExecutionPolicy Bypass -File scripts\check.ps1
 ```
 
-等价于 `flutter analyze` + `flutter test`（86 个用例）+ PetForge CLI 冒烟测试。
+脚本会先跑 `flutter pub get`，所以换机器 / 刚克隆仓库时直接执行即可，不必手动装依赖；
+等价于 `flutter analyze` + `flutter test`（93 个用例）+ PetForge CLI 冒烟测试。
 PetForge 的 9 个单元测试可以单独跑：`cd services\petforge; .\.venv\Scripts\python -m unittest discover -s tests -v`。
 其中 `petforge_e2e_test` 会连本地 PetForge 做真实的「上传照片 → 生成宠物」端到端验证，
 服务没启动时自动跳过；想用自己的照片跑：`PETFORGE_TEST_IMAGE=照片路径 flutter test test/petforge_e2e_test.dart`。

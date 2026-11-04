@@ -149,6 +149,7 @@ class _PetStageState extends State<PetStage> with TickerProviderStateMixin {
         PetAction.none => PetMotion.idle,
       };
     }
+    if (controller.eating) return PetMotion.eat;
     if (controller.begging) return PetMotion.lie;
     if (controller.running) return PetMotion.run;
     if (controller.walking) return PetMotion.walk;
@@ -165,6 +166,7 @@ class _PetStageState extends State<PetStage> with TickerProviderStateMixin {
     if (controller.dragging) return PetMood.happy;
     if (controller.petting || controller.begging) return PetMood.love;
     if (controller.running) return PetMood.happy;
+    if (controller.eating) return PetMood.love;
     if (_currentAction == PetAction.hop && _action.isAnimating) return PetMood.happy;
     if (_blink) return PetMood.blink;
     return controller.mood;
@@ -215,18 +217,22 @@ class _PetStageState extends State<PetStage> with TickerProviderStateMixin {
               // 逐帧动画（flipbook）：petpack 带 walk/run/lie 动画序列时按 fps 循环播放真实帧，
               // 程序化姿态衰减到 25% 仅叠加微动，避免与帧内已绘姿态（如躺倒倾斜）叠加；
               // 无动画序列的动作（拖拽 / 点击 / 睡觉等）仍走纯程序化姿态。
+              final mood = _frameMood(controller);
+              final hasFrame = pet.frames.containsKey(mood);
+              final frameMood = hasFrame ? mood : PetMood.idle;
+
               final anim = pet.animations[motion.name];
               String? animFile;
-              if (anim != null && anim.frames.isNotEmpty) {
+              // 照片宠物通常只有 idle 一帧，其余表情靠 ExpressionOverlay 叠加。
+              // 有 idle 呼吸动画时，非 idle 表情要让位给 overlay，否则表情会被呼吸帧盖住。
+              final expressionFallback =
+                  motion == PetMotion.idle && mood != PetMood.idle && !hasFrame;
+              if (anim != null && anim.frames.isNotEmpty && !expressionFallback) {
                 // 用单调时钟取帧：_clock 每 20 秒回绕一次，直接拿它算帧号会在回绕时跳帧。
                 final time = _animClock.elapsedMilliseconds / 1000.0;
                 animFile = anim.frameAt(time);
                 pose = const PetPose().lerp(pose, 0.25);
               }
-
-              final mood = _frameMood(controller);
-              final hasFrame = pet.frames.containsKey(mood);
-              final frameMood = hasFrame ? mood : PetMood.idle;
 
               final petImage = Stack(
                 alignment: Alignment.center,

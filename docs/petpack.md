@@ -8,7 +8,8 @@ pets/<petId>/
 ├─ base.png         照片生成宠物的主帧
 ├─ idle.png         内置宠物有 6 张：idle / happy / love / angry / sleepy / blink
 ├─ happy.png
-└─ ...
+├─ walk_0.png …    可选：逐帧动作（walk / run / lie / hop / drop / spin / eat …）
+└─ idle_0.png …    可选：待机呼吸、说话、打盹等扩展动作帧
 ```
 
 内置宠物放在 `app/assets/pets/<id>/`（打进 App，依次是 `doudou` 小黄豆 / `momo` 橘子团子 /
@@ -59,12 +60,15 @@ pets/<petId>/
     "blink": "blink.png"
   },
 
-  // 逐帧动作：键是动作名（walk / run / lie / hop…），值是帧序列
+  // 逐帧动作：键必须和 PetMotion.name 对上，值是帧序列
+  // 已支持：idle / walk / run / lie / hop / drop / spin / pat / talk / sleepy / angry / eat
   // fps 缺省 8；帧文件同样是相对本目录的文件名
   "animations": {
     "walk": { "fps": 8, "frames": ["walk_0.png", "walk_1.png", "walk_2.png"] },
     "run": { "fps": 10, "frames": ["run_0.png", "run_1.png", "run_2.png"] },
-    "lie": { "fps": 3, "frames": ["lie_0.png", "lie_1.png"] }
+    "lie": { "fps": 3, "frames": ["lie_0.png", "lie_1.png"] },
+    "idle": { "fps": 6, "frames": ["idle_0.png", "idle_1.png"] },
+    "eat": { "fps": 8, "frames": ["eat_0.png", "eat_1.png"] }
   },
 
   // 可选：网格图集（当前 Flutter 端未消费，留给批量预解码使用）
@@ -87,7 +91,13 @@ pets/<petId>/
   带 `animations` 的包（PetForge `animate=true` 生成）走真实逐帧动画。
 - `blink` 帧只影响眨眼表现，没有就压扁一下代替（`Pet.supportsBlink`）。
 - `animations` 里帧列表为空的项会被忽略；`fps` 缺省 8。动作名要和
-  `PetMotion.name` 对上（`walk` / `run` / `lie` / `hop`…），否则不会被播放。
+  `PetMotion.name` 对上（`walk` / `run` / `lie` / `hop` / `spin` / `eat`…），否则不会被播放。
+- **帧文件必须真实存在**：`PetStage` 预解码时用 `onError` 忽略加载失败，
+  声明了却不存在的帧会表现为「动作期间宠物消失」。增删帧时记得同步 `petpack.json`。
+- 只有 `idle` 表情帧、又带 `idle` 呼吸动画时，`PetStage` 在 happy / love / angry 等情绪下
+  会跳过呼吸帧，改用 `ExpressionOverlay` 表现表情，避免呼吸帧盖住情绪。
+- `eat` 由主动讨食行为触发（见 [架构说明](architecture.md#状态与行为)），
+  没有该序列时回退到 `motion.dart` 的程序化点头姿态。
 - `atlas` 是可选优化，缺省时按 `animations` 里的独立帧加载。
 - `palette` 为空时补一个暖橙色；`accent` 缺失时取 `palette.first`。
 - 任何字段缺失都有默认值，`{ "frames": {...} }` 这样的最小包也能跑起来。
@@ -118,3 +128,22 @@ python tools\make_builtin_pets.py
 
 管理面板 →「生成」→ 选照片 → 收养。产物会写进应用支持目录下的 `pets/p<时间戳>/`，
 在「宠物库」里可以随时切换或删除。
+
+### 方式四：给已有的单图宠物补动作帧
+
+`tools/generate_pet_motion_frames.py` 用 Pillow 对 `frames.idle` 做几何变形，
+幂等生成 `idle`(4) / `talk`(2) / `eat`(4) / `sleepy`(2) / `spin`(8) 共 20 帧并写回
+`petpack.json`（只覆盖自己管理的 5 个 key，不动 `walk` / `run` / 性格 / 配色）。
+
+```powershell
+# 项目里的导出素材
+services\petforge\.venv\Scripts\python.exe tools\generate_pet_motion_frames.py
+
+# 直接对桌面端正在使用的宠物目录生成（改完重启 App 生效）
+services\petforge\.venv\Scripts\python.exe tools\generate_pet_motion_frames.py `
+    --pet-dir "$env:APPDATA\MomoPet\MomoPet\pets\<petId>"
+```
+
+Windows 上应用支持目录来自 `windows/runner/Runner.rc` 的 CompanyName / ProductName，
+当前是 `%APPDATA%\MomoPet\MomoPet\pets`。脚本每次运行会覆盖同名帧，但不会删除任何文件；
+批量改动前建议先备份 `petpack.json`。

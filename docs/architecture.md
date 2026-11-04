@@ -6,7 +6,7 @@
 ┌──────────────────────────── app/lib ────────────────────────────┐
 │ ui/            PetShell / PetView / ChatView / PanelView / 气泡   │
 │ pet/           PetStage（帧 + 程序化动作）、motion、particles     │
-│ state/         AppController —— 唯一状态中枢（ChangeNotifier）   │
+│ state/         AppController + 4 个 coordinator（ChangeNotifier）│
 │ services/      WindowService、TrayService、Win32HitTest、        │
 │                ChatService（LocalBrain / OpenAiBackend）、       │
 │                PetForgeClient、BadgePetFactory、Persona          │
@@ -20,7 +20,21 @@
 ```
 
 没有引入状态管理框架：`AppController extends ChangeNotifier`，`main.dart` 用 `ListenableBuilder` 包住整个 App。
-好处是所有跨窗口行为（形态切换、拖动、气泡、定时器）都收在一个类里，调试时只需盯一处。
+状态字段全部留在 `AppController` 上，行为按职责拆成四个 `on ChangeNotifier` 的 mixin：
+
+| coordinator | 负责 |
+| --- | --- |
+| `pet_behavior.dart` | 点击 / 抚摸 / 拖动 / 空闲定时器 / 主动行为 |
+| `chat_coordinator.dart` | 收发消息、流式输出、朗读、历史持久化 |
+| `generation_coordinator.dart` | 选图、PetForge / 徽章兜底、收养 |
+| `update_coordinator.dart` | 版本检查、下载安装、Petdex 导入、悬浮窗开关 |
+
+mixin 通过抽象 getter / setter 声明所需状态，由 `AppController` 的字段直接满足，
+因此对外 API（`controller.tapPet()` / `sendMessage()` …）和 UI 代码完全不用改；
+`controller_types.dart` 单放枚举与主动行为权重纯函数，避免循环 import。
+面板同样按 Tab 拆成 `panel_chrome` / `gallery_tab` / `create_tab` / `settings_tab`，
+`panel_view.dart` 只保留装配与桌面 / 移动端布局。
+调试时看状态仍只需盯 `AppController`，改行为则去对应 coordinator。
 
 ## 窗口形态
 
@@ -76,7 +90,14 @@
   往右拖朝右。停住时仍继续迈步（当前实现不区分“拖动中是否移动”）。
 - **兜底**：照片生成的自定义宠物没有动画帧时（旧宠物包 / 生成时关闭动画），动作走纯程序化姿态
   （挤压 / 摆动 / 旋转）。
-- `motion.dart`：`idle` 呼吸、`hop` 跳跃、`spin` 转圈、`drop` 落地、`drag` 被拎起、`pat` 被摸、`walk` 走路、`run` 奔跑（前倾 + 颠簸）、`lie` 躺倒求摸（侧倾 0.52rad + 压扁 0.76 + 3.2s 呼吸）。
+- **扩展动作**：`animations` 现在也认 `idle`（呼吸）、`talk`（说话）、`sleepy`（打盹）、
+  `spin`（转圈）、`eat`（讨食点头）。有财的这 5 组帧由
+  `tools/generate_pet_motion_frames.py` 从 `base.png` 程序化变形生成（20 帧，幂等可重跑），
+  不依赖 ComfyUI。`PetMotion` 新增 `eat`，由主动讨食行为驱动，无帧时回退到 `motion.dart` 的点头姿态。
+- **表情让位**：照片宠物通常只有 `idle` 一帧，其余情绪靠 `ExpressionOverlay` 叠加。
+  当 `motion == idle` 且当前情绪没有对应表情帧时，`PetStage` 跳过 idle 呼吸帧，
+  否则呼吸帧会把 happy / love 等表情盖住。其它动作（talk / sleepy / spin / eat）优先用帧。
+- `motion.dart`：`idle` 呼吸、`hop` 跳跃、`spin` 转圈、`drop` 落地、`drag` 被拎起、`pat` 被摸、`walk` 走路、`run` 奔跑（前倾 + 颠簸）、`lie` 躺倒求摸（侧倾 0.52rad + 压扁 0.76 + 3.2s 呼吸）、`eat` 点头。
 - 呼吸 / 摆动 / 逐帧播放用一条 20 秒循环的 `AnimationController`（`PetStage._clock`）驱动；
   `PetStage` 用 `AnimatedBuilder` 监听 `Listenable.merge([_clock, _action])` 逐帧重建
   （早先前只靠 `AppController.notifyListeners()` 触发，走动时帧并不会连续播放）。
@@ -94,12 +115,29 @@
 | `mood` | AppController | idle / happy / love / angry / sleepy / blink / talk |
 | `affection` | AppController | 互动次数，影响撒娇台词与生气阈值（每 19 次点出「别戳啦」） |
 | `bubble` | AppController | 气泡文本，定时器到期自动收起 |
-| `messages` / `_history` | AppController | 当前宠物的会话；按宠物 id 分区，最多留 60 条 |
+| `messages` / `history` | AppController | 当前宠物的会话；按宠物 id 分区，最多留 60 条 |
 | `mode` / `panelTab` | AppController | 窗口形态与面板页签 |
 | `walking` / `running` | AppController | 漫游状态：`stroll()` 用 `glideBy` 平移窗口 + 走/跑姿态，30% 概率小跑 |
-| `begging` | AppController | 躺倒求摸持续状态：`lieDown()` 触发，6 秒气泡 + 14 秒收起，任何互动（`_wake`）打断；躺倒时被摸奖励翻倍 |
+| `begging` | AppController | 躺倒求摸持续状态：`lieDown()` 触发，6 秒气泡 + 14 秒收起，任何互动（`wake()`）打断；躺倒时被摸奖励翻倍 |
+| `eating` / `awaitingTreat` | AppController | 讨食动画播放中 / 12 秒投喂窗口；窗口内点击走 `feedTreat()`（好感 +3 并播开心跳） |
 
-定时行为都集中在 `_startIdleTimers()`：自动睡觉（90 秒无互动）、桌面走动（26~56 秒随机一次，其中 30% 为小跑）、自动躺倒求摸（首次 35~75 秒随机一次，求摸后 80~150 秒再一轮，仅在桌面宠物形态且空闲时）。
+定时行为都集中在 `pet_behavior.dart` 的 `startIdleTimers()`：自动睡觉（90 秒无互动）、
+桌面走动（26~56 秒随机一次，其中 30% 为小跑）、自动躺倒求摸（首次 35~75 秒，之后 80~150 秒）、
+主动行为（180~360 秒一次）。仅在桌面宠物形态且空闲时触发，设置变化会重排定时器。
+
+主动行为按 `personality.traits` 加权抽取（`controller_types.dart` 里的纯函数，可单测）：
+
+```
+traits（贪吃 / 黏人 / 元气 …）
+   → proactiveWeights → random ticket → ProactiveKind
+       chat    冒泡一句 catchphrase / 闲聊
+       treat   begForTreat()：eat 帧 + 12 秒投喂窗口，点一下 = 投喂
+       cuddle  lieDown() 求摸
+       zoomies stroll(run: true) 小跑一圈
+```
+
+设置页「主动互动」控制 `AppSettings.proactive`；面板「逗一下」直接调 `triggerProactive()`，
+不必等定时器。
 
 ## 数据落盘
 
@@ -164,3 +202,4 @@ PanelView 选图 → AppController.loadSource(bytes)
 - `settings_test.dart`：设置默认值、JSON 往返、缩放夹取、坏数据容错、人格推导稳定性。
 - `memory_test.dart`：成长阶段划分、互动点、提示词片段、话题/里程碑上限、持久化往返、按宠物清空。
 - `stream_and_speech_test.dart`：SSE 增量解析、HTTP 错误与空回复抛错、本地模式一次性返回、语音文本清洗。
+- `proactive_behavior_test.dart`：性格权重与 ticket 区间、有财专属倾向、开关持久化与旧配置回落、eat 姿态。

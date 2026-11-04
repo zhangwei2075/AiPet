@@ -13,6 +13,7 @@ class AppSettings {
     this.clickThrough = true,
     this.wander = true,
     this.autoSleep = true,
+    this.proactive = true,
     this.chatBackend = ChatBackendKind.local,
     this.baseUrl = 'http://127.0.0.1:11434/v1',
     this.apiKey = '',
@@ -33,6 +34,9 @@ class AppSettings {
   /// 空闲时在桌面上小幅走动
   final bool wander;
   final bool autoSleep;
+
+  /// 空闲时按宠物性格主动搭话 / 讨食 / 求摸 / 小跑
+  final bool proactive;
 
   final ChatBackendKind chatBackend;
   final String baseUrl;
@@ -63,6 +67,7 @@ class AppSettings {
     bool? clickThrough,
     bool? wander,
     bool? autoSleep,
+    bool? proactive,
     ChatBackendKind? chatBackend,
     String? baseUrl,
     String? apiKey,
@@ -81,6 +86,7 @@ class AppSettings {
       clickThrough: clickThrough ?? this.clickThrough,
       wander: wander ?? this.wander,
       autoSleep: autoSleep ?? this.autoSleep,
+      proactive: proactive ?? this.proactive,
       chatBackend: chatBackend ?? this.chatBackend,
       baseUrl: baseUrl ?? this.baseUrl,
       apiKey: apiKey ?? this.apiKey,
@@ -101,6 +107,7 @@ class AppSettings {
         'clickThrough': clickThrough,
         'wander': wander,
         'autoSleep': autoSleep,
+        'proactive': proactive,
         'chatBackend': chatBackend.name,
         'baseUrl': baseUrl,
         'apiKey': apiKey,
@@ -134,6 +141,7 @@ class AppSettings {
       clickThrough: _asBool(json['clickThrough'], true),
       wander: _asBool(json['wander'], true),
       autoSleep: _asBool(json['autoSleep'], true),
+      proactive: _asBool(json['proactive'], true),
       chatBackend: json['chatBackend'] == 'openai' ? ChatBackendKind.openai : ChatBackendKind.local,
       baseUrl: _asString(json['baseUrl'], 'http://127.0.0.1:11434/v1'),
       apiKey: _asString(json['apiKey'], ''),

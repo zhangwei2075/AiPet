@@ -62,6 +62,7 @@ pets/<petId>/
 
   // 逐帧动作：键必须和 PetMotion.name 对上，值是帧序列
   // 已支持：idle / walk / run / lie / hop / drop / spin / pat / talk / sleepy / angry / eat
+  // <motion>_left 是另一朝向的独立序列（对齐 Petdex 的 run-left 行）
   // fps 缺省 8；帧文件同样是相对本目录的文件名
   "animations": {
     "walk": { "fps": 8, "frames": ["walk_0.png", "walk_1.png", "walk_2.png"] },
@@ -150,10 +151,23 @@ Windows 上应用支持目录来自 `windows/runner/Runner.rc` 的 CompanyName /
 当前是 `%APPDATA%\MomoPet\MomoPet\pets`。脚本每次运行会覆盖同名帧，但不会删除任何文件；
 批量改动前建议先备份 `petpack.json`。
 
-> **转圈为什么不用「压扁翻牌」**：早期把 `scaleX` 压到 `|cos θ|`，90° / 270° 两帧
-> 只剩约 100px 宽（正常 338px），看起来像一根棍子。现在改成
-> 「左右倾斜 ±16° + 原地小跳 + 第 4/5 帧镜像翻面」，`scaleX` 最窄 0.86，
-> 8 帧都是完整形象。这是几何表达问题，换 AI 生成侧身帧并不能自动解决：
-> 低 denoise 的 img2img 很难让 8 帧保持同一张脸和同一件卫衣。
-> 真要上 AI，更划算的是用已有的 `hop` / `walk` 精修帧重组，或按
-> [宠物动画素材生成](pet-generation.md) 走 ComfyUI 补帧。
+### 动画范式（对齐 [Petdex](petdex.md)）
+
+早期版本对**整张图**做仿射变换，实测 4 张 walk 帧的差异区域都是
+`x=59~512, y=22~512`（整只狗一起动），所以走路看不出四肢交替、动作一大就果冻化，
+转圈还错误地用了绕图像中心的 2D 旋转（`rotation: 2πp`）。现在的规则：
+
+- **局部位移场**：头 / 躯干 / 四只脚 / 尾巴 / 嘴各有独立高斯权重，
+  只对该部位像素施加位移，其余像素保持原样；脚底有锚定衰减，脚跟贴地。
+  四足相位差 π 形成交替步态，躯干/头部只有轻微起伏与前后倾斜。
+- **绕垂直轴转身**：`spin` 序列的帧号代表**朝向**，
+  `PetStage` 按一次性动作进度取帧而不是按 fps 循环；帧内用柱面重映射做水平透视，
+  **y 恒定、无 2D rotation、无整体倾斜**。`MotionEngine.spin` 只留水平面内的微动。
+- **方向独立序列**：`<motion>_left` / 普通序列对应 Petdex 的 running-left / running-right，
+  渲染层按 `facing` 选择，不再靠运行时镜像假装转身。
+- **帧数**：idle 6 / walk 8 / run 8 / hop 5 / lie 6 / talk 4 / eat 6 / sleepy 6 /
+  angry 8 / spin 8，与 Petdex 的状态行帧数一致。
+
+一张正面照片不含侧面 / 背面信息，所以方向帧仍是几何近似；
+要真正达到 Petdex 的 8 方向观感，需要单独绘制或用
+[ComfyUI 补帧](pet-generation.md) 生成一套 8×9 / 8×11 图集。

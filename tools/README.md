@@ -10,9 +10,12 @@ python tools\make_builtin_pets.py
 依赖 `pillow`、`numpy`，并且会 import `services/petforge/petforge/pipeline.py` 里的
 `apply_sticker_style`（描边贴纸风格），所以需要先有 petforge 的 Python 依赖。
 
-- `generate_pet_motion_frames.py`：给只有一张 `base.png` 的宠物补程序化动作帧，
-  不依赖模型 / ComfyUI。幂等，只覆盖 `idle` / `talk` / `eat` / `sleepy` / `spin` 五个
-  `animations` key，已有动作与元数据不动。
+- `generate_pet_motion_frames.py`：按 [Petdex](../docs/petdex.md) 范式，
+  用**局部位移场**给单图宠物生成动作帧，不依赖模型 / ComfyUI。幂等，
+  覆盖 `idle / walk / run / hop / drop / lie / talk / eat / sleepy / angry / spin`
+  共 67 帧，并写入 `walk_left` / `run_left` 两条独立方向序列。
+  头 / 躯干 / 四只脚 / 尾巴 / 嘴各自变形，脚底锚定；`spin` 是绕垂直轴的方向帧
+  （y 恒定、无 2D 旋转）。依赖 `pillow` + `numpy`。
 
 ```powershell
 # 默认处理 exports/有财
@@ -23,8 +26,9 @@ services\petforge\.venv\Scripts\python.exe tools\generate_pet_motion_frames.py `
     --pet-dir "$env:APPDATA\MomoPet\MomoPet\pets\<petId>"
 ```
 
-输出：`idle_0..3.png`、`talk_0..1.png`、`eat_0..3.png`、`sleepy_0..1.png`、
-`spin_0..7.png`（512×512 RGBA）与更新后的 `petpack.json`。
+输出：`idle_0..5` / `walk_0..7` / `run_0..7` / `hop_0..4` / `drop_0..1` /
+`lie_0..5` / `talk_0..3` / `eat_0..5` / `sleepy_0..5` / `angry_0..7` /
+`spin_0..7`（512×512 RGBA，共 67 帧）与更新后的 `petpack.json`。
 依赖 `pillow`，用 `services/petforge/.venv/Scripts/python.exe` 运行即可。
 字段与动作名规则见 [宠物包格式](../docs/petpack.md)。
 

@@ -168,14 +168,13 @@ class MotionEngine {
         rotation: 0.02 * math.sin(time * 9),
       );
 
+  /// 转身是绕**垂直轴**（Y 轴）在水平面里转，由 petpack 的方向帧序列表现。
+  /// 这里绝不能给 `rotation`（那是绕图像中心的 2D 打转），也不能抬升或倾斜：
+  /// 身体基座和脚底要一直贴地。姿态层只留一点水平面内的左右微动，
+  /// 没有方向帧的宠物转圈时也不会出现错误的平面旋转。
   static PetPose spin(double progress) {
     final p = progress.clamp(0.0, 1.0);
-    return PetPose(
-      rotation: 2 * math.pi * p,
-      offsetY: -14 * math.sin(math.pi * p),
-      scaleX: 1 - 0.05 * math.sin(math.pi * p),
-      scaleY: 1 - 0.05 * math.sin(math.pi * p),
-    );
+    return PetPose(offsetX: 3.0 * math.sin(2 * math.pi * p));
   }
 
   /// 慢走：小幅度上下颠 + 左右晃。

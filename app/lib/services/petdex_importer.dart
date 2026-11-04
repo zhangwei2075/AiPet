@@ -141,6 +141,8 @@ class PetdexImporter {
       final images = <String, Uint8List>{};
       final idle = await _sliceRow(sheet, layout, 0, 6, 'idle', images);
       final walk = await _sliceRow(sheet, layout, 1, 8, 'walk', images);
+      // Petdex 第 2 行 run-left 是单独绘制的另一朝向，不是第 1 行的镜像。
+      final left = await _sliceRow(sheet, layout, 2, 8, 'walk_left', images);
       final wave = await _sliceRow(sheet, layout, 3, 4, 'wave', images);
       final jump = await _sliceRow(sheet, layout, 4, 5, 'jump', images);
       final failed = await _sliceRow(sheet, layout, 5, 8, 'failed', images);
@@ -181,9 +183,14 @@ class PetdexImporter {
         'animations': {
           'idle': {'fps': 8, 'frames': idle.map((n) => '$n.png').toList()},
           'walk': {'fps': 8, 'frames': walk.map((n) => '$n.png').toList()},
-          'run': {'fps': 10, 'frames': walk.map((n) => '$n.png').toList()},
+          // 左右朝向各自成序列，对齐 Petdex 的 run-right / run-left 两行。
+          'walk_left': {'fps': 8, 'frames': left.map((n) => '$n.png').toList()},
+          'run': {'fps': 12, 'frames': walk.map((n) => '$n.png').toList()},
+          'run_left': {'fps': 12, 'frames': left.map((n) => '$n.png').toList()},
           'lie': {'fps': 6, 'frames': waiting.map((n) => '$n.png').toList()},
-          'hop': {'fps': 8, 'frames': jump.map((n) => '$n.png').toList()},
+          'hop': {'fps': 10, 'frames': jump.map((n) => '$n.png').toList()},
+          'talk': {'fps': 8, 'frames': wave.map((n) => '$n.png').toList()},
+          'angry': {'fps': 10, 'frames': failed.map((n) => '$n.png').toList()},
         },
         'source': 'petdex',
       };

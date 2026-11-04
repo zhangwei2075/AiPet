@@ -97,6 +97,12 @@ class PetAnimSequence {
     final index = (seconds * rate).floor() % frames.length;
     return frames[index];
   }
+
+  /// 按序号取帧：绕垂直轴转身时，帧号代表朝向而不是时间。
+  String frameAtIndex(int index) {
+    if (frames.isEmpty) return '';
+    return frames[index % frames.length];
+  }
 }
 
 /// 宠物主体

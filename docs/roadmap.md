@@ -139,8 +139,12 @@ APK 已出包（JDK 17 + Android SDK 36，`flutter build apk --release` →
   `idle`(4) / `talk`(2) / `eat`(4) / `sleepy`(2) / `spin`(8) 共 20 帧，`PetMotion` 新增 `eat`；
   `PetStage` 在有 idle 呼吸帧时让位给表情 overlay，避免盖住 happy / love 等情绪。
   帧已同步到 `exports/有财` 与桌面端四个有财宠物目录。
-  转圈帧放弃「宽度压到 |cos|」的翻牌做法（90°/270° 会被压成 100px 竖条），
-  改为倾斜 + 小跳 + 半程镜像；详见 [petpack.md](petpack.md#方式四给已有的单图宠物补动作帧)。
+- **按 Petdex 范式重做动画（后续反馈）**：上面的程序化整图仿射仍不对——
+  walk 只有一只脚在动、其它动作果冻化，转圈是绕图像中心的 2D 旋转。
+  改为 67 帧局部位移场（四足交替、脚底锚定）+ 绕垂直轴的方向帧序列，
+  左右朝向各一条独立序列，帧数对齐 Petdex 状态行；
+  详见 [petdex.md](petdex.md) 与 [petpack.md](petpack.md#动画范式对齐-petdex)。
+  真 8 方向仍需独立绘制/AI 图集，本机 ComfyUI checkpoint 为空，属外部条件。
 - **数据修复**：桌面端有财宠物包原本声明 `run` 动画却缺 `run_*.png`，已补齐；
   原 `petpack.json` 备份为同目录 `petpack.json.bak`。
 - **设置**：新增 `proactive`（默认开、旧配置缺字段自动回落），开关变化会重排空闲定时器。

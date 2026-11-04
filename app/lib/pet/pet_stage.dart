@@ -162,6 +162,18 @@ class _PetStageState extends State<PetStage> with TickerProviderStateMixin {
     };
   }
 
+  /// Petdex 风格：左右朝向是**独立的状态行**（run-right / run-left），
+  /// 而不是运行时把整张图镜像、更不是绕图像中心旋转。
+  PetAnimSequence? _animationFor(PetMotion motion, AppController controller) {
+    final name = motion.name;
+    if (controller.facing < 0 &&
+        (motion == PetMotion.walk || motion == PetMotion.run)) {
+      final left = widget.pet.animations['${name}_left'];
+      if (left != null) return left;
+    }
+    return widget.pet.animations[name];
+  }
+
   PetMood _frameMood(AppController controller) {
     if (controller.dragging) return PetMood.happy;
     if (controller.petting || controller.begging) return PetMood.love;
@@ -221,16 +233,25 @@ class _PetStageState extends State<PetStage> with TickerProviderStateMixin {
               final hasFrame = pet.frames.containsKey(mood);
               final frameMood = hasFrame ? mood : PetMood.idle;
 
-              final anim = pet.animations[motion.name];
+              final anim = _animationFor(motion, controller);
               String? animFile;
               // 照片宠物通常只有 idle 一帧，其余表情靠 ExpressionOverlay 叠加。
               // 有 idle 呼吸动画时，非 idle 表情要让位给 overlay，否则表情会被呼吸帧盖住。
               final expressionFallback =
                   motion == PetMotion.idle && mood != PetMood.idle && !hasFrame;
               if (anim != null && anim.frames.isNotEmpty && !expressionFallback) {
-                // 用单调时钟取帧：_clock 每 20 秒回绕一次，直接拿它算帧号会在回绕时跳帧。
-                final time = _animClock.elapsedMilliseconds / 1000.0;
-                animFile = anim.frameAt(time);
+                if (motion == PetMotion.spin && _action.isAnimating) {
+                  // 绕垂直轴转身：帧号代表**朝向**，跟一次性动作进度走，不按 fps 循环。
+                  // 帧内已含柱面透视，这里不再叠任何 2D 旋转或倾斜。
+                  final index = (_action.value * anim.frames.length)
+                      .floor()
+                      .clamp(0, anim.frames.length - 1);
+                  animFile = anim.frameAtIndex(index);
+                } else {
+                  // 用单调时钟取帧：_clock 每 20 秒回绕一次，直接拿它算帧号会在回绕时跳帧。
+                  final time = _animClock.elapsedMilliseconds / 1000.0;
+                  animFile = anim.frameAt(time);
+                }
                 pose = const PetPose().lerp(pose, 0.25);
               }
 

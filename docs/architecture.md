@@ -82,9 +82,14 @@ mixin 通过抽象 getter / setter 声明所需状态，由 `AppController` 的�
   （`const PetPose().lerp(pose, 0.25)`），只留轻微起伏 / 倾斜，避免与帧内已绘姿态
   （如躺倒歪头）叠加。无动画序列的动作（拖拽 / 点击 / 睡觉等）仍走纯程序化姿态。
 
-- **方向化**：帧原画朝左，`AppController.facing` 记录最近一次走动方向，渲染时水平镜像，
-  实现「向左跑 / 向右跑」。点击（hop）与松手落地（drop）的帧动画按 `motion.name`
-  自动命中 animations，无需额外接线。
+- **方向化（Petdex 范式）**：帧原画朝左，`AppController.facing` 记录最近一次走动方向，
+  渲染时水平镜像；`facing < 0` 时 `_animationFor` 会优先取 `<motion>_left` 这条
+  **独立方向序列**（对应 Petdex 的 running-left 行），而不是只靠镜像。
+  点击（hop）与松手落地（drop）的帧动画按 `motion.name` 自动命中 animations。
+- **绕垂直轴转身**：`spin` 序列的帧号是**朝向索引**，`PetStage` 用 `_action.value` 取帧，
+  不再按 fps 循环；帧内用柱面重映射做水平透视，y 恒定、脚底贴地。
+  `MotionEngine.spin` 已移除 `rotation: 2πp`（那是绕图像中心的 2D 打转），
+  只保留水平面内 ±3px 微动。详见 [petdex.md](petdex.md)。
 - **拖动走路**：拖动时若 petpack 有 `walk`，`PetStage` 直接播 walk 真帧；`WindowService`
   每 16ms 把拖动位移回调给 `AppController`，按 `dx` 更新 `facing`，所以往左拖朝左、
   往右拖朝右。停住时仍继续迈步（当前实现不区分“拖动中是否移动”）。
@@ -97,7 +102,11 @@ mixin 通过抽象 getter / setter 声明所需状态，由 `AppController` 的�
 - **表情让位**：照片宠物通常只有 `idle` 一帧，其余情绪靠 `ExpressionOverlay` 叠加。
   当 `motion == idle` 且当前情绪没有对应表情帧时，`PetStage` 跳过 idle 呼吸帧，
   否则呼吸帧会把 happy / love 等表情盖住。其它动作（talk / sleepy / spin / eat）优先用帧。
-- `motion.dart`：`idle` 呼吸、`hop` 跳跃、`spin` 转圈、`drop` 落地、`drag` 被拎起、`pat` 被摸、`walk` 走路、`run` 奔跑（前倾 + 颠簸）、`lie` 躺倒求摸（侧倾 0.52rad + 压扁 0.76 + 3.2s 呼吸）、`eat` 点头。
+- `motion.dart`：`idle` 呼吸、`hop` 跳跃、`spin` 水平面微动（无 2D 旋转）、`drop` 落地、
+  `drag` 被拎起、`pat` 被摸、`walk` 走路、`run` 奔跑（前倾 + 颠簸）、
+  `lie` 躺倒求摸（侧倾 0.52rad + 压扁 0.76 + 3.2s 呼吸）、`eat` 点头。
+  这一层是**没有逐帧素材时的程序化兜底**；有 `animations` 的宠物姿态只叠加 25%，
+  主要表现来自位移场生成的局部动作帧。
 - 呼吸 / 摆动 / 逐帧播放用一条 20 秒循环的 `AnimationController`（`PetStage._clock`）驱动；
   `PetStage` 用 `AnimatedBuilder` 监听 `Listenable.merge([_clock, _action])` 逐帧重建
   （早先前只靠 `AppController.notifyListeners()` 触发，走动时帧并不会连续播放）。

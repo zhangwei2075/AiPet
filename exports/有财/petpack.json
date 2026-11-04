@@ -47,7 +47,11 @@
         "walk_0.png",
         "walk_1.png",
         "walk_2.png",
-        "walk_3.png"
+        "walk_3.png",
+        "walk_4.png",
+        "walk_5.png",
+        "walk_6.png",
+        "walk_7.png"
       ]
     },
     "run": {
@@ -56,44 +60,59 @@
         "run_0.png",
         "run_1.png",
         "run_2.png",
-        "run_3.png"
+        "run_3.png",
+        "run_4.png",
+        "run_5.png",
+        "run_6.png",
+        "run_7.png"
       ]
     },
     "lie": {
-      "fps": 2.5,
+      "fps": 6,
       "frames": [
-        "lie_0.png"
+        "lie_0.png",
+        "lie_1.png",
+        "lie_2.png",
+        "lie_3.png",
+        "lie_4.png",
+        "lie_5.png"
       ]
     },
     "hop": {
-      "fps": 12,
+      "fps": 10,
       "frames": [
         "hop_0.png",
         "hop_1.png",
         "hop_2.png",
-        "hop_3.png"
+        "hop_3.png",
+        "hop_4.png"
       ]
     },
     "drop": {
-      "fps": 3,
+      "fps": 6,
       "frames": [
-        "drop_0.png"
+        "drop_0.png",
+        "drop_1.png"
       ]
     },
     "idle": {
-      "fps": 6,
+      "fps": 8,
       "frames": [
         "idle_0.png",
         "idle_1.png",
         "idle_2.png",
-        "idle_3.png"
+        "idle_3.png",
+        "idle_4.png",
+        "idle_5.png"
       ]
     },
     "talk": {
       "fps": 6,
       "frames": [
         "talk_0.png",
-        "talk_1.png"
+        "talk_1.png",
+        "talk_2.png",
+        "talk_3.png"
       ]
     },
     "eat": {
@@ -102,14 +121,20 @@
         "eat_0.png",
         "eat_1.png",
         "eat_2.png",
-        "eat_3.png"
+        "eat_3.png",
+        "eat_4.png",
+        "eat_5.png"
       ]
     },
     "sleepy": {
-      "fps": 1.5,
+      "fps": 4,
       "frames": [
         "sleepy_0.png",
-        "sleepy_1.png"
+        "sleepy_1.png",
+        "sleepy_2.png",
+        "sleepy_3.png",
+        "sleepy_4.png",
+        "sleepy_5.png"
       ]
     },
     "spin": {
@@ -123,6 +148,45 @@
         "spin_5.png",
         "spin_6.png",
         "spin_7.png"
+      ]
+    },
+    "angry": {
+      "fps": 10,
+      "frames": [
+        "angry_0.png",
+        "angry_1.png",
+        "angry_2.png",
+        "angry_3.png",
+        "angry_4.png",
+        "angry_5.png",
+        "angry_6.png",
+        "angry_7.png"
+      ]
+    },
+    "walk_left": {
+      "fps": 8,
+      "frames": [
+        "walk_7.png",
+        "walk_6.png",
+        "walk_5.png",
+        "walk_4.png",
+        "walk_3.png",
+        "walk_2.png",
+        "walk_1.png",
+        "walk_0.png"
+      ]
+    },
+    "run_left": {
+      "fps": 12,
+      "frames": [
+        "run_7.png",
+        "run_6.png",
+        "run_5.png",
+        "run_4.png",
+        "run_3.png",
+        "run_2.png",
+        "run_1.png",
+        "run_0.png"
       ]
     }
   }

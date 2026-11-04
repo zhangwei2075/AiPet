@@ -16,6 +16,7 @@ services/petforge/tests/out/
 
 # 本地临时产物 / 发布产物（体积大且可重建）
 .tmp/
+.workbuddy/memory/
 *.log
 MomoPet-release.zip
 app/build/app/outputs/

@@ -11,11 +11,12 @@ python tools\make_builtin_pets.py
 `apply_sticker_style`（描边贴纸风格），所以需要先有 petforge 的 Python 依赖。
 
 - `generate_pet_motion_frames.py`：按 [Petdex](../docs/petdex.md) 范式，
-  用**局部位移场**给单图宠物生成动作帧，不依赖模型 / ComfyUI。幂等，
+  用**分部件蒙皮**给单图宠物生成动作帧，不依赖模型 / ComfyUI。幂等，
   覆盖 `idle / walk / run / hop / drop / lie / talk / eat / sleepy / angry / spin`
   共 67 帧，并写入 `walk_left` / `run_left` 两条独立方向序列。
-  头 / 躯干 / 四只脚 / 尾巴 / 嘴各自变形，脚底锚定；`spin` 是绕垂直轴的方向帧
-  （y 恒定、无 2D 旋转）。依赖 `pillow` + `numpy`。
+  身体拆成九个部件（头 / 双耳 / 嘴 / 躯干 / 左右前脚 / 后脚 / 尾巴），
+  每个部件有自己的关节枢轴，可独立旋转 / 平移 / 缩放 / 压暗后按权重合成；
+  `spin` 是绕垂直轴的方向帧（y 恒定、无 2D 旋转）。依赖 `pillow` + `numpy`。
 
 ```powershell
 # 默认处理 exports/有财

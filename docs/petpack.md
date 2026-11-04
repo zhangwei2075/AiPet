@@ -132,11 +132,12 @@ python tools\make_builtin_pets.py
 
 ### 方式四：给已有的单图宠物补动作帧
 
-`tools/generate_pet_motion_frames.py` 用 Pillow 对 `frames.idle` 做几何变形，
-幂等生成 `idle`(4) / `talk`(2) / `eat`(4) / `sleepy`(2) / `spin`(8) 共 20 帧并写回
-`petpack.json`（只覆盖自己管理的 5 个 key，不动 `walk` / `run` / 性格 / 配色）。
+`tools/generate_pet_motion_frames.py` 用 Pillow + numpy 对 `frames.idle` 做**分部件蒙皮**，
+幂等生成 idle / walk / run / hop / drop / lie / talk / eat / sleepy / angry / spin
+共 67 帧并写回 `petpack.json`（只覆盖自己管理的 11 个 key，附带 `walk_left` / `run_left`
+两条方向序列，不动性格 / 配色 / 其它字段）。只依赖 Pillow 与 numpy，不需要模型或 ComfyUI。
 
-![有财新增动作帧](images/youcai-motion-frames.jpg)
+![有财动作帧](images/youcai-motion-frames.jpg)
 
 ```powershell
 # 项目里的导出素材
@@ -157,17 +158,33 @@ Windows 上应用支持目录来自 `windows/runner/Runner.rc` 的 CompanyName /
 `x=59~512, y=22~512`（整只狗一起动），所以走路看不出四肢交替、动作一大就果冻化，
 转圈还错误地用了绕图像中心的 2D 旋转（`rotation: 2πp`）。现在的规则：
 
-- **局部位移场**：头 / 躯干 / 四只脚 / 尾巴 / 嘴各有独立高斯权重，
-  只对该部位像素施加位移，其余像素保持原样；脚底有锚定衰减，脚跟贴地。
-  四足相位差 π 形成交替步态，躯干/头部只有轻微起伏与前后倾斜。
+- **分部件蒙皮**：身体划成 head / ear_left / ear_right / mouth / body / front_left /
+  front_right / hind_left / tail 九个部件，每个部件有自己的**关节枢轴**（肩、胯、颈、耳根、尾根）
+  与**超高斯权重**。每个部件可独立做「绕枢轴旋转 + 平移 + 缩放 + 压暗」，
+  再按权重做 alpha 加权合成；没被任何部件覆盖的像素保留原图。
+  于是耳朵会滞后甩动、尾巴会摇、嘴能张合、四肢能各自动。
+- **步态方向**：绕肩枢轴大角度旋转会让脚**向两侧甩**（读起来像劈叉），
+  所以走路的主运动是**竖直抬脚 + 略向身体内收 + 脚掌轻微拉伸**，旋转只留很小的胫骨倾角；
+  躯干做起伏 + 2 倍频左右重心转移，把两个半周期区分开（避免 `walk_0` / `walk_4` 长得一样）。
 - **绕垂直轴转身**：`spin` 序列的帧号代表**朝向**，
-  `PetStage` 按一次性动作进度取帧而不是按 fps 循环；帧内用柱面重映射做水平透视，
-  **y 恒定、无 2D rotation、无整体倾斜**。`MotionEngine.spin` 只留水平面内的微动。
+  `PetStage` 按一次性动作进度取帧而不是按 fps 循环；帧内用分部件偏转 ——
+  头保持宽度不被压扁、躯干按 `|cos|` 收窄、远近侧肢体错位并压暗，
+  **y 恒定、无 2D rotation、无整体倾斜**。帧号按圆周等分（`index/count`），
+  让 90°/270° 的最窄帧正好落在镜像切换点上，轮廓跳变被最窄宽度掩盖。
+  `MotionEngine.spin` 只留水平面内的微动。
 - **方向独立序列**：`<motion>_left` / 普通序列对应 Petdex 的 running-left / running-right，
   渲染层按 `facing` 选择，不再靠运行时镜像假装转身。
 - **帧数**：idle 6 / walk 8 / run 8 / hop 5 / lie 6 / talk 4 / eat 6 / sleepy 6 /
   angry 8 / spin 8，与 Petdex 的状态行帧数一致。
 
-一张正面照片不含侧面 / 背面信息，所以方向帧仍是几何近似；
-要真正达到 Petdex 的 8 方向观感，需要单独绘制或用
-[ComfyUI 补帧](pet-generation.md) 生成一套 8×9 / 8×11 图集。
+**为什么不用 AI 生成侧面 / 背面帧**（2026-11 实测结论，避免重复踩）：
+
+| 尝试 | 结果 |
+| --- | --- |
+| img2img（IP-Adapter）denoise 0.45 / 0.65 / 0.72 / 0.80 / 0.85 | 画质变好，但**全部仍是正面**——初始潜空间被底图锁死，`side` 提示词无效 |
+| txt2img + IP-Adapter（空 latent，weight 0.9） | 能换姿态，但**换不出可靠视角**，且身份漂移（卫衣、耳朵、花纹都变） |
+| txt2img 求「四足站立」底图 × 6 个种子 | 全部输出**两条后腿直立**的拟人站姿——SD1.5 + 坐姿参考会往拟人化跑 |
+
+结论：单张正面图里不含侧面 / 背面信息，低成本 img2img 补不出来。
+要真正达到 Petdex 的 8 方向观感，只有两条路：单独绘制（或训练角色 LoRA 后生成）
+一套 8×9 / 8×11 图集，再用 `PetdexImporter` 导入；或继续用当前的分部件蒙皮近似。

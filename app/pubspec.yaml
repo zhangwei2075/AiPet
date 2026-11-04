@@ -1,0 +1,68 @@
+name: momopet
+description: 摸摸宠 MomoPet —— 用照片生成一只住在桌面上的 AI 宠物。
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  # withValues / Color.toARGB32 需要 Flutter 3.27 起；内置宠物用的是 3.x 材质 3 主题
+  sdk: ">=3.6.0 <4.0.0"
+  flutter: ">=3.27.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # 窗口 / 托盘 / 透明背景
+  window_manager: ^0.5.2
+  tray_manager: ^0.8.0
+  screen_retriever: ^0.2.2
+  flutter_acrylic: ^1.1.4
+
+  # Win32 命中测试（宠物以外区域鼠标穿透）
+  win32: ^6.4.0
+  ffi: ^2.2.0
+
+  # Android 系统级悬浮窗
+  flutter_overlay_window: ^1.0.2
+
+  # 语音朗读（系统 TTS，不联网）
+  flutter_tts: ^4.2.5
+
+  # 网络 / 本地存储
+  http: ^1.6.0
+  file_picker: ^13.3.0
+  shared_preferences: ^2.5.6
+  path_provider: ^2.1.6
+  crypto: ^3.0.8
+  package_info_plus: ^10.2.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  msix: ^3.18.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/icons/
+    - assets/pets/doudou/
+    - assets/pets/momo/
+    - assets/pets/mint/
+    - assets/pets/taro/
+
+# MSIX 打包：dart run msix:create
+# 没有签名证书时生成的是未签名包，装机需要开发者模式（或自己用证书签）。
+msix_config:
+  display_name: 摸摸宠 MomoPet
+  publisher_display_name: MomoPet
+  publisher: CN=MomoPet
+  identity_name: com.momopet.momopet
+  msix_version: 0.1.0.0
+  logo_path: assets/icons/app_icon.png
+  start_menu_name: 摸摸宠 MomoPet
+  languages: zh-cn
+  capabilities: internetClient
+  # 非交互打包：不弹「要不要安装证书」的询问（CI / 脚本里跑必需）
+  install_certificate: false

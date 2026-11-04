@@ -1,0 +1,4 @@
+# 可选依赖：显著提升抠图质量（模型首次使用会自动下载，约 170MB）
+# pip install -r requirements-optional.txt
+rembg[cpu]>=2.0.57
+onnxruntime>=1.17

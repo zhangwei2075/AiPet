@@ -1,0 +1,22 @@
+# Flutter / Dart
+app/build/
+app/.dart_tool/
+app/.flutter-plugins
+app/.flutter-plugins-dependencies
+app/windows/flutter/ephemeral/
+app/android/.gradle/
+app/android/local.properties
+*.iml
+
+# Python
+services/petforge/.venv/
+__pycache__/
+*.pyc
+services/petforge/tests/out/
+
+# 本地临时产物 / 发布产物（体积大且可重建）
+.tmp/
+*.log
+MomoPet-release.zip
+app/build/app/outputs/
+*.msix

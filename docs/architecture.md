@@ -1,0 +1,166 @@
+# 架构说明
+
+## 分层
+
+```
+┌──────────────────────────── app/lib ────────────────────────────┐
+│ ui/            PetShell / PetView / ChatView / PanelView / 气泡   │
+│ pet/           PetStage（帧 + 程序化动作）、motion、particles     │
+│ state/         AppController —— 唯一状态中枢（ChangeNotifier）   │
+│ services/      WindowService、TrayService、Win32HitTest、        │
+│                ChatService（LocalBrain / OpenAiBackend）、       │
+│                PetForgeClient、BadgePetFactory、Persona          │
+│ data/          PetRepository、SettingsStore                      │
+│ models/        Pet / PetPack、ChatMessage、AppSettings           │
+└─────────────────────────────────────────────────────────────────┘
+                     │ HTTP                    │ HTTP
+        ┌────────────▼──────────┐   ┌─────────▼──────────────┐
+        │ 本地 / 在线 LLM 接口  │   │ PetForge（FastAPI）    │
+        └───────────────────────┘   └────────────────────────┘
+```
+
+没有引入状态管理框架：`AppController extends ChangeNotifier`，`main.dart` 用 `ListenableBuilder` 包住整个 App。
+好处是所有跨窗口行为（形态切换、拖动、气泡、定时器）都收在一个类里，调试时只需盯一处。
+
+## 窗口形态
+
+一个窗口，三种形态（`WindowMode`），由 `WindowService.applyMode` 改尺寸并居中过渡：
+
+| 形态 | 尺寸 | 内容 |
+| --- | --- | --- |
+| `pet` | 300+80·scale × 360+120·scale（夹在 300~460 / 360~500） | 宠物本体 + 气泡 |
+| `chat` | max(410, 宠物宽) × 660 | 聊天面板 |
+| `panel` | 900 × 680 | 宠物库 / 生成 / 设置 |
+
+窗口属性：无边框、透明、置顶、不进任务栏、不可缩放。透明靠 `flutter_acrylic` 的 `WindowEffect.transparent`，
+`window_manager` 负责尺寸、位置、置顶、显示隐藏。
+
+## 鼠标穿透（仅 Windows）
+
+宠物窗口大部分区域是空的，必须让点击继续落到下面的桌面图标上。
+
+1. `PetStage` 每次布局后把宠物的全局矩形写进 `WindowService.hitRect`；
+   `PetView` 另外把气泡与右上角按钮的并集写进 `uiRect`，两块都参与命中判定
+   （只算宠物的话，那两个按钮在穿透模式下永远点不到）。
+2. `Win32HitTest` 用 `FindWindow` 拿 HWND，每 120ms 读一次光标物理坐标与窗口矩形，
+   按 `dpr = 窗口物理宽 / 窗口逻辑宽` 换算成窗口内逻辑坐标。
+3. 光标在 `hitRect`（外扩 12px）内 → 取消穿透；否则 `setIgnoreMouseEvents(true)`。
+
+用轮询而不是 Flutter 的 `MouseRegion`：穿透状态下 Flutter 收不到任何鼠标事件，只能从系统层面问。
+
+拖动也没有用 `windowManager.startDragging()`（它进入 WM_NCLBUTTONDOWN 的模态循环，动画会停），
+而是每 16ms 采样光标位移并 `setPosition`，所以被拎起来时宠物还能继续摆动。
+
+## 动画引擎
+
+动画是「逐帧动画 + 程序化微动」两层叠加：
+
+- **逐帧动画（flipbook）**：`petpack.json` 的 `animations` 段声明动作序列，如
+  `{"walk": {"fps": 8, "frames": ["walk_0.png", ...]}}`。内置宠物由
+  `tools/make_builtin_pets.py` 逐帧重绘（walk 4 帧 @8fps、run 4 帧 @12fps、lie 2 帧 @2.5fps
+  含呼吸、hop 4 帧 @12fps 开心跳、drop 2 帧 @3fps 委屈落地），腿 / 尾 / 耳 / 身体真实变化。
+  动作集对齐灵犀桌宠的标准化动作（待机 / 开心 / 委屈 / 跑），自定义宠物（有财）的帧
+  由图生图生成（基准图 + 绿幕抠图）。照片宠物由 PetForge `animate=true` 生成
+  walk / run / lie（默认程序化仿射变形，512×512，带帧间去重；可选 ComfyUI 图生图），
+  详见 [pet-generation.md](pet-generation.md)。`PetStage` 按 `(time * fps) % frames.length`
+  循环取帧渲染（`Pet.imageForFile`）。
+- **程序化微动**：`motion.dart` 姿态叠加在帧上；命中动画序列时姿态衰减到 25%
+  （`const PetPose().lerp(pose, 0.25)`），只留轻微起伏 / 倾斜，避免与帧内已绘姿态
+  （如躺倒歪头）叠加。无动画序列的动作（拖拽 / 点击 / 睡觉等）仍走纯程序化姿态。
+
+- **方向化**：帧原画朝左，`AppController.facing` 记录最近一次走动方向，渲染时水平镜像，
+  实现「向左跑 / 向右跑」。点击（hop）与松手落地（drop）的帧动画按 `motion.name`
+  自动命中 animations，无需额外接线。
+- **拖动走路**：拖动时若 petpack 有 `walk`，`PetStage` 直接播 walk 真帧；`WindowService`
+  每 16ms 把拖动位移回调给 `AppController`，按 `dx` 更新 `facing`，所以往左拖朝左、
+  往右拖朝右。停住时仍继续迈步（当前实现不区分“拖动中是否移动”）。
+- **兜底**：照片生成的自定义宠物没有动画帧时（旧宠物包 / 生成时关闭动画），动作走纯程序化姿态
+  （挤压 / 摆动 / 旋转）。
+- `motion.dart`：`idle` 呼吸、`hop` 跳跃、`spin` 转圈、`drop` 落地、`drag` 被拎起、`pat` 被摸、`walk` 走路、`run` 奔跑（前倾 + 颠簸）、`lie` 躺倒求摸（侧倾 0.52rad + 压扁 0.76 + 3.2s 呼吸）。
+- 呼吸 / 摆动 / 逐帧播放用一条 20 秒循环的 `AnimationController`（`PetStage._clock`）驱动；
+  `PetStage` 用 `AnimatedBuilder` 监听 `Listenable.merge([_clock, _action])` 逐帧重建
+  （早先前只靠 `AppController.notifyListeners()` 触发，走动时帧并不会连续播放）。
+  帧号用单调 `Stopwatch` 取（`PetAnimSequence.frameAt`），避免 `_clock` 每 20 秒回绕时跳帧；
+  动作帧在进入舞台时 `precacheImage` 预解码，第一圈走动不会卡顿。
+- 动作由 `AppController.action + actionSeed` 触发：seed 变化即播一次，播完回调 `completeAction()`。
+- 眨眼随机 2.4~6 秒一次；有 `blink` 帧就换帧，没有就压扁一下。
+- `particles.dart`：爱心 / 星星 / 怒气 / Zzz / 音符，按情绪由 `AppController.emitBurst` 派发。
+
+## 状态与行为
+
+| 状态 | 归属 | 说明 |
+| --- | --- | --- |
+| `active` / `pets` | AppController | 当前宠物与全部宠物（内置 + 用户目录扫描） |
+| `mood` | AppController | idle / happy / love / angry / sleepy / blink / talk |
+| `affection` | AppController | 互动次数，影响撒娇台词与生气阈值（每 19 次点出「别戳啦」） |
+| `bubble` | AppController | 气泡文本，定时器到期自动收起 |
+| `messages` / `_history` | AppController | 当前宠物的会话；按宠物 id 分区，最多留 60 条 |
+| `mode` / `panelTab` | AppController | 窗口形态与面板页签 |
+| `walking` / `running` | AppController | 漫游状态：`stroll()` 用 `glideBy` 平移窗口 + 走/跑姿态，30% 概率小跑 |
+| `begging` | AppController | 躺倒求摸持续状态：`lieDown()` 触发，6 秒气泡 + 14 秒收起，任何互动（`_wake`）打断；躺倒时被摸奖励翻倍 |
+
+定时行为都集中在 `_startIdleTimers()`：自动睡觉（90 秒无互动）、桌面走动（26~56 秒随机一次，其中 30% 为小跑）、自动躺倒求摸（首次 35~75 秒随机一次，求摸后 80~150 秒再一轮，仅在桌面宠物形态且空闲时）。
+
+## 数据落盘
+
+| 内容 | 位置 |
+| --- | --- |
+| 设置 | `shared_preferences` 键 `aipet.settings.v1`（JSON） |
+| 聊天记录 | `shared_preferences` 键 `aipet.history.v1`（`{petId: [message]}`） |
+| 长期记忆 | `shared_preferences` 键 `aipet.memory.v1`（`{petId: PetMemory}`） |
+| 生成的自定义宠物 | `getApplicationSupportDirectory()/pets/<petId>/`（`petpack.json` + `base.png` 等帧） |
+| 内置宠物 | `assets/pets/{momo,mint,taro}/` |
+
+`MemoryStore` 存的是「摘要级」记忆（见面天数、摸头次数、话题计数、里程碑短句），
+和完整对话分开存：清空对话不会把「认识了多久」一起清掉。话题提取是极简的关键词正则
+（工作 / 学业 / 吃饭 / 睡觉 / 情绪 / 娱乐 / 天气 / 周末），只做计数、只留前 8 个。
+
+`PetRepository` 扫描用户目录时逐个容错：某个宠物包坏掉只跳过这一只，不会拖垮启动。
+`AppSettings.fromJson` 同样逐字段容错，配置文件被手改也不会整体重置。
+
+## 聊天链路
+
+```
+AppController.sendMessage
+   ├─ 本地模式 → ChatService.local → LocalBrain.reply（关键词规则，永不失联）
+   └─ 在线模式 → ChatService.sendStream → OpenAiBackend.streamReply
+         ├─ 拼 systemPrompt（含记忆片段）+ 最近 10 条历史
+         ├─ POST {baseUrl}/chat/completions，stream: true（25s 超时）
+         ├─ 解析 SSE 增量逐段 yield，聊天页显示流式气泡
+         └─ 出错 / 空回复 → 整段降级到 LocalBrain.reply
+```
+
+收尾统一走 `_finishReply`：落一条宠物消息、切情绪、（开了语音就）朗读、冒气泡、
+把这一轮记进长期记忆。
+
+`ChatResult.degraded` 标记是否走了兜底，`ChatView` 据此显示「在线模型没连上」的提示条。
+
+## 生成链路
+
+```
+PanelView 选图 → AppController.loadSource(bytes)
+    → generate()
+        ├─ PetForgeClient.health → 在线？
+        │      ├─ 在线：POST /api/generate（multipart）→ GeneratedPet(pack + base.png)
+        │      └─ 离线：BadgePetFactory.build → 圆形猫耳徽章 + 本地人格
+        └─ adoptPreview → PetRepository.saveGenerated → 切到新宠物
+```
+
+离线徽章模式用 `dart:ui` 的 Canvas 直接绘制（猫耳 + 圆形裁剪 + 白描边 + 高光），
+主色由照片像素的 HSV 加权平均得到，再交给 `persona.dart` 推导名字与性格——与 `services/petforge/petforge/persona.py` 同一套口味。
+
+## 语音
+
+`SpeechService` 包着 `flutter_tts`（Windows SAPI / Android 系统 TTS），任何一步失败都静默降级，
+不影响聊天。念之前先 `cleanForSpeech`：去情绪标签、颜文字、markdown，超长截断。
+开关存在 `AppSettings.tts`，聊天页小喇叭和设置页共用 `toggleTts()`。
+
+## 测试
+
+`app/test/` 覆盖纯 Dart 层，不依赖插件：
+
+- `pet_pack_test.dart`：宠物包解析、缺帧回退、空包默认值、序列化往返。
+- `chat_service_test.dart`：本地小脑分支、情绪标签解析、在线 200 正常路径、500 降级路径。
+- `settings_test.dart`：设置默认值、JSON 往返、缩放夹取、坏数据容错、人格推导稳定性。
+- `memory_test.dart`：成长阶段划分、互动点、提示词片段、话题/里程碑上限、持久化往返、按宠物清空。
+- `stream_and_speech_test.dart`：SSE 增量解析、HTTP 错误与空回复抛错、本地模式一次性返回、语音文本清洗。

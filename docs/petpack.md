@@ -198,6 +198,9 @@ Windows 上应用支持目录来自 `windows/runner/Runner.rc` 的 CompanyName /
 
 ![有财侧面走路与奔跑帧](images/youcai-side-gait.jpg)
 
+动态预览（静态拼图看不出步态连贯性）：[走路](images/youcai-walk.gif) /
+[奔跑](images/youcai-run.gif) / [转圈](images/youcai-spin.gif)。
+
 **转圈：从柱面近似到四视角硬切**（2026-11，两轮实测）
 
 第一轮想做「正面 → 侧前 → 背面 → 另一侧」四视角**交叉淡化**，失败，两个原因：

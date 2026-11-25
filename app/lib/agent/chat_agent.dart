@@ -59,6 +59,9 @@ class ChatAgentException implements Exception {
 ///          → 结果以 tool 消息回灌 → 模型继续 → 直到给出最终文字
 /// ```
 /// 所有工具都走 ToolRuntime，与自主循环共用同一套权限校验 / 审计 / 状态上报。
+///
+/// 轮次上限 12：写插件、抓数据这类活要多次「读结构 → 改 → 验证」，
+/// 6 轮一定不够，会在半路被截断成「做到一半停一下」。
 class ChatAgent {
   ChatAgent({
     required ToolRegistry registry,
@@ -66,7 +69,7 @@ class ChatAgent {
     http.Client? client,
     AgentActivity? activity,
     ExperienceBank? experience,
-    this.maxToolRounds = 6,
+    this.maxToolRounds = 12,
   })  : _registry = registry,
         _runtime = runtime,
         _client = client ?? http.Client(),

@@ -1,7 +1,7 @@
 name: momopet
 description: 摸摸宠 MomoPet —— 用照片生成一只住在桌面上的 AI 宠物。
 publish_to: "none"
-version: 0.3.0+1
+version: 0.4.0+1
 
 environment:
   # withValues / Color.toARGB32 需要 Flutter 3.27 起；内置宠物用的是 3.x 材质 3 主题

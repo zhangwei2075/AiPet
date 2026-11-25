@@ -222,7 +222,7 @@ Brain任务(提醒创建)   ─┘        │
   的工具先回「我去看看」，后台执行完再 `agentBubble` 汇报，等待期间聊天流不阻塞。
   内置工具默认非 slow（提醒必须即时确认）。
 - **brainpack.json**（`agent/brainpack.dart`）：仿 petpack 的声明式能力清单，白名单
-  （`builtInTools` / `builtInTriggers`，M5 已扩到 16 个工具）外的条目跳过并记 warning。
+  （`builtInTools` / `builtInTriggers`，M5 已扩到 16 个工具，0.4 起加入 4 个订阅工具共 20 个）外的条目跳过并记 warning。
   **这是配置不是代码**：不执行任意 Dart、不接受任意 URL。
   M5 之后它只是「模型工具清单的开关表」，不再是能力上限；授权看 `AgentPermissions`。
 - **投机执行**（`agent/speculative.dart`）：基于时段（下班前 / 睡前）与 30 分钟内到期日程

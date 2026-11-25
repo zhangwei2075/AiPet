@@ -114,5 +114,13 @@ abstract class ClipboardReader {
 
 class SystemClipboardReader implements ClipboardReader {
   @override
-  Future<String?> read() async => (await Clipboard.getData(Clipboard.kTextPlain))?.text;
+  Future<String?> read() async {
+    try {
+      return (await Clipboard.getData(Clipboard.kTextPlain))?.text;
+    } catch (_) {
+      // 剪贴板正被别的进程占用时平台会抛 PlatformException(Unable to open clipboard)，
+      // 这不是错误状态，下一轮轮询再读即可，别让它变成未捕获异常刷日志。
+      return null;
+    }
+  }
 }

@@ -162,6 +162,11 @@ class BrainPack {
     'window',
     'input',
     'screenshot',
+    // 资讯订阅（简讯）
+    'watch_create',
+    'watch_list',
+    'watch_run',
+    'watch_delete',
   };
 
   static const Set<String> builtInTriggers = {

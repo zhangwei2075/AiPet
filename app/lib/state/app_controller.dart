@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 
 import '../agent/activity.dart';
 import '../agent/autonomy.dart';
+import '../agent/watch.dart';
 import '../agent/brain.dart';
 import '../agent/brain_host.dart';
 import '../agent/brainpack.dart';
@@ -126,6 +127,7 @@ class AppController extends ChangeNotifier
   /// 聊天级 function calling 执行器，在 initialize 里用 Brain 的注册表装配。
   @override
   ChatAgent? chatAgent;
+  WatchService? watchService;
 
   /// M5 自主循环：目标队列 + 多步规划 + 后台执行。随 initialize 创建。
   AutonomyLoop? autonomy;
@@ -409,12 +411,19 @@ class AppController extends ChangeNotifier
     startIdleTimers();
     memoryService = MemoryService(store: EpisodicStore());
     unawaited(memoryService!.load());
+    // 订阅要在 Brain 之前建：注册表在构造时就定型，晚了工具就进不去。
+    watchService = WatchService(
+      store: WatchStore(),
+      host: this,
+      memory: memoryService,
+    );
     brain = PetBrain(
       host: this,
       store: TaskStore(),
       probe: ToolProbe(),
       memoryService: memoryService,
       runtime: toolRuntime,
+      watchService: watchService,
     );
     chatAgent = ChatAgent(
       registry: brain!.registry,
@@ -441,6 +450,7 @@ class AppController extends ChangeNotifier
     );
     brain!.attachLoop(autonomy!);
     unawaited(brain!.start());
+    watchService!.start();
 
     // M3 自治：Watchdog 巡视 + 感知 Trigger + 投机执行。
     // 感知类默认关闭，开启与否由设置热控制（isEnabled 回调实时读取）。
@@ -797,6 +807,7 @@ class AppController extends ChangeNotifier
     clipboardTrigger?.dispose();
     appFocusTrigger?.dispose();
     autonomy?.dispose();
+    watchService?.dispose();
     brain?.dispose();
     disposeBehavior();
     disposeChat();

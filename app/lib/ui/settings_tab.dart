@@ -15,6 +15,7 @@ import 'feature_help.dart';
 import 'manage_page.dart';
 import 'persona_page.dart';
 import 'theme.dart';
+import 'watch_section.dart';
 
 class SettingsTab extends StatefulWidget {
   const SettingsTab({super.key, required this.controller});
@@ -35,6 +36,7 @@ class SettingsTabState extends State<SettingsTab> {
   final _appearanceKey = GlobalKey();
   final _personaKey = GlobalKey();
   final _chatKey = GlobalKey();
+  final _watchKey = GlobalKey();
   final _voiceKey = GlobalKey();
   final _forgeKey = GlobalKey();
   final _updateKey = GlobalKey();
@@ -176,6 +178,7 @@ class SettingsTabState extends State<SettingsTab> {
                   _appearance(accent),
                   _persona(accent),
                   _chat(accent),
+                  _watch(accent),
                   _voice(),
                   _forge(),
                   _update(),
@@ -202,6 +205,7 @@ class SettingsTabState extends State<SettingsTab> {
       ('外观', Icons.palette_outlined),
       ('人设', Icons.theater_comedy_outlined),
       ('对话', Icons.forum_outlined),
+      ('简讯', Icons.newspaper_outlined),
       ('语音', Icons.graphic_eq_rounded),
       ('形象', Icons.face_retouching_natural_outlined),
       ('更新', Icons.system_update_alt_rounded),
@@ -211,6 +215,7 @@ class SettingsTabState extends State<SettingsTab> {
       _appearanceKey,
       _personaKey,
       _chatKey,
+      _watchKey,
       _voiceKey,
       _forgeKey,
       _updateKey,
@@ -599,6 +604,21 @@ class SettingsTabState extends State<SettingsTab> {
             ),
           ),
         ],
+      ],
+    );
+  }
+
+  /// 简讯订阅：智能体自己开通的、以及主人手动加的，都在这里管。
+  Widget _watch(Color accent) {
+    return _section(
+      key: _watchKey,
+      title: '简讯订阅',
+      description: '按间隔抓财联社电报，命中关键词就主动提醒',
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: Insets.x2),
+          child: WatchSection(controller: controller, accent: accent),
+        ),
       ],
     );
   }

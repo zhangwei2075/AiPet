@@ -18,6 +18,8 @@ import 'tools/desktop_tools.dart';
 import 'tools/file_tools.dart';
 import 'tools/reminder_tool.dart';
 import 'tools/system_tools.dart';
+import 'tools/watch_tools.dart';
+import 'watch.dart';
 import 'watchdog.dart';
 
 /// Brain（Super-agent 里的 Router，宠物版）。
@@ -35,6 +37,7 @@ class PetBrain {
     MemoryService? memoryService,
     ToolRuntime? runtime,
     AutonomyLoop? loop,
+    WatchService? watchService,
     DateTime Function()? now,
   })  : _host = host,
         _store = store,
@@ -42,6 +45,7 @@ class PetBrain {
         _memory = memoryService,
         _runtime = runtime ?? ToolRuntime(),
         _loop = loop,
+        _watchService = watchService,
         _now = now ?? DateTime.now {
     _registerTools();
   }
@@ -61,6 +65,15 @@ class PetBrain {
     for (final tool in buildDesktopTools()) {
       add(tool);
     }
+    // 资讯订阅：主人说「做个财联社插件」时，模型靠这四个工具真开通，
+    // 而不是去翻插件目录、自己写脚本（那种做法没有调度器，注定失败）。
+    final watches = _watchService;
+    if (watches != null) {
+      add(WatchCreateTool(watches));
+      add(WatchListTool(watches));
+      add(WatchRunTool(watches));
+      add(WatchDeleteTool(watches));
+    }
   }
 
   final BrainHost _host;
@@ -69,6 +82,7 @@ class PetBrain {
   final DateTime Function() _now;
   final ToolRuntime _runtime;
   AutonomyLoop? _loop;
+  final WatchService? _watchService;
 
   final ToolRegistry registry = ToolRegistry();
   final MemoryService? _memory;

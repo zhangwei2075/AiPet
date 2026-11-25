@@ -189,7 +189,7 @@ class TaskSession {
 ### M4 插件化与预判 ✅ 已实施
 - `agent/brainpack.dart`：仿 petpack 的 `brainpack.json` 声明式配置。白名单内置工具/Trigger
   才能开关，未知条目跳过并记 warning，不执行任意代码（不做 npm 插件兼容，见 §3）。
-  **M5 修订**：白名单扩到 16 个工具并降级为「开关表」，不再承担授权职责；
+  **M5 修订**：白名单扩到 16 个工具（后续加 `watch_*` 共 20 个）并降级为「开关表」，不再承担授权职责；
   真正的边界是 `AgentPermissions` + `ToolRuntime` 的可撤销授权与审计（autonomy.md §6）。
 - `agent/speculative.dart`：投机执行 = 预判式关怀。基于时段（下班前/睡前）与临近日程
   预生成关怀草稿，缓存后由 Trigger 触发才输出；静默时段与每日配额同样生效。

@@ -6,6 +6,8 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 
+import '../app_version.dart';
+
 /// 版本检查接口返回的一条更新信息。
 ///
 /// 支持两种 JSON：
@@ -90,7 +92,7 @@ class UpdateService {
       return build.isEmpty ? info.version : '${info.version}+$build';
     } catch (error) {
       debugPrint('PackageInfo unavailable: $error');
-      return '0.1.0';
+      return kAppVersion;
     }
   }
 

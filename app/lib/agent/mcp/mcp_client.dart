@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../../app_version.dart';
 import '../permissions.dart';
 import '../pet_tool.dart';
 import 'mcp_server.dart';
@@ -28,7 +29,7 @@ class McpClient {
     await _rpc(server.url, 'initialize', {
       'protocolVersion': '2024-11-05',
       'capabilities': const {},
-      'clientInfo': {'name': 'MomoPet', 'version': '0.1.0'},
+      'clientInfo': {'name': 'MomoPet', 'version': kAppVersion},
     });
     // 服务端可能通过 header 下发会话 id，后续请求要带上。
     final listed = await _rpc(server.url, 'tools/list', {}, session: _sessionId);

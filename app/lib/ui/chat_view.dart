@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../models/chat.dart';
-import '../models/settings.dart';
 import '../models/pet.dart';
 import '../models/pet_memory.dart';
+import '../models/settings.dart';
 import '../state/app_controller.dart';
 import 'common.dart';
 import 'memory_page.dart';
@@ -52,7 +52,7 @@ class _ChatViewState extends State<ChatView> {
     if (!_scroll.hasClients) return;
     final target = _scroll.position.maxScrollExtent;
     if (animate) {
-      _scroll.animateTo(target, duration: const Duration(milliseconds: 220), curve: Curves.easeOut);
+      _scroll.animateTo(target, duration: Motion.base, curve: Motion.curve);
     } else {
       _scroll.jumpTo(target);
     }
@@ -70,13 +70,15 @@ class _ChatViewState extends State<ChatView> {
   Widget build(BuildContext context) {
     final accent = pet?.accent ?? Theme.of(context).colorScheme.primary;
     if (pet == null) {
-      return const EmptyHint(text: '还没有宠物');
+      return const Padding(
+          padding: EdgeInsets.all(Insets.x3), child: EmptyHint(text: '还没有宠物'));
     }
 
     if (_lastCount != controller.messages.length ||
         _hadTyping != controller.typing ||
         _lastStream != controller.streamingText) {
-      final streamingStarted = controller.streamingText != null && _lastStream == null;
+      final streamingStarted =
+          controller.streamingText != null && _lastStream == null;
       _lastCount = controller.messages.length;
       _hadTyping = controller.typing;
       _lastStream = controller.streamingText;
@@ -85,20 +87,45 @@ class _ChatViewState extends State<ChatView> {
       );
     }
 
+    final empty =
+        controller.messages.isEmpty && controller.streamingText == null;
+
     return Padding(
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.all(Insets.x2),
       child: GlassCard(
         padding: EdgeInsets.zero,
-        radius: 26,
+        radius: Radii.panel,
         child: Column(
           children: [
+            // 聊天窗没有标题栏，给一条细抓手，否则窗口没法挪位置。
+            if (controller.isDesktop)
+              MouseRegion(
+                cursor: SystemMouseCursors.move,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onPanDown: (_) => controller.beginWindowDrag(),
+                  child: SizedBox(
+                    height: 12,
+                    child: Center(
+                      child: Container(
+                        width: 32,
+                        height: 3,
+                        decoration: BoxDecoration(
+                          color: AppColors.line,
+                          borderRadius: BorderRadius.circular(Radii.pill),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             _header(accent),
             const Divider(height: 1),
             _statusBanner(accent),
             Expanded(child: _messages(accent)),
             if (controller.typing) _typingRow(accent),
             if (controller.chatError != null) _errorBanner(),
-            _quickChips(accent),
+            if (!empty) _quickChips(accent),
             _inputBar(accent),
           ],
         ),
@@ -109,49 +136,71 @@ class _ChatViewState extends State<ChatView> {
   Widget _header(Color accent) {
     final backend = controller.settings.chatBackend;
     final status = backend == ChatBackendKind.openai
-        ? 'AI · ${controller.settings.model} · 可执行工具'
+        ? '${controller.settings.model} · 可执行工具'
         : '本地小脑 · 也能操作电脑';
+    final growth = memory?.growth.label;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
+      padding:
+          const EdgeInsets.fromLTRB(Insets.x4, Insets.x3, Insets.x2, Insets.x3),
       child: Row(
         children: [
           Container(
-            width: 44,
-            height: 44,
+            width: 40,
+            height: 40,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: accent.withValues(alpha: 0.14),
+              color: tintOf(accent, 0.16),
+              border: Border.all(color: AppColors.surface, width: 2),
             ),
             child: ClipOval(
-              child: Image(image: pet!.imageFor(PetMood.idle), fit: BoxFit.cover),
-            ),
+                child: Image(
+                    image: pet!.imageFor(PetMood.idle), fit: BoxFit.cover)),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: Insets.x3),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  pet!.name,
-                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        pet!.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            height: 1.2),
+                      ),
+                    ),
+                    if (growth != null) ...[
+                      const SizedBox(width: 6),
+                      TagChip(label: growth, color: accent, dense: true),
+                    ],
+                  ],
                 ),
-                const SizedBox(height: 2),
+                const SizedBox(height: 3),
                 Row(
                   children: [
                     Container(
                       width: 6,
                       height: 6,
                       decoration: BoxDecoration(
-                        color: controller.typing ? const Color(0xFFE9A23B) : const Color(0xFF57B87A),
+                        color: controller.typing
+                            ? AppColors.warning
+                            : AppColors.success,
                         shape: BoxShape.circle,
                       ),
                     ),
                     const SizedBox(width: 5),
                     Flexible(
                       child: Text(
-                        controller.typing ? '正在想…' : '${memory?.growth.label ?? ''} · $status',
+                        controller.typing ? '正在想…' : status,
+                        maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 11, color: AppColors.inkSoft),
+                        style: const TextStyle(
+                            fontSize: 11.5, color: AppColors.inkSoft),
                       ),
                     ),
                   ],
@@ -160,10 +209,13 @@ class _ChatViewState extends State<ChatView> {
             ),
           ),
           RoundIconButton(
-            icon: controller.settings.tts ? Icons.volume_up_rounded : Icons.volume_off_outlined,
+            icon: controller.settings.tts
+                ? Icons.volume_up_rounded
+                : Icons.volume_off_outlined,
             tooltip: controller.settings.tts ? '关闭朗读' : '朗读回复',
-            color: Colors.transparent,
-            iconColor: controller.settings.tts ? accent : AppColors.inkSoft,
+            size: 32,
+            iconColor:
+                controller.settings.tts ? inkOn(accent) : AppColors.inkFaint,
             onPressed: () async {
               await controller.toggleTts();
               if (mounted) setState(() {});
@@ -172,16 +224,14 @@ class _ChatViewState extends State<ChatView> {
           RoundIconButton(
             icon: Icons.psychology_alt_outlined,
             tooltip: '它记得什么',
-            color: Colors.transparent,
-            iconColor: AppColors.inkSoft,
+            size: 32,
             onPressed: _showMemory,
           ),
           if (controller.messages.isNotEmpty)
             RoundIconButton(
               icon: Icons.delete_outline_rounded,
               tooltip: '清空记录',
-              color: Colors.transparent,
-              iconColor: AppColors.inkSoft,
+              size: 32,
               onPressed: () {
                 controller.clearChat();
                 setState(() {});
@@ -190,8 +240,7 @@ class _ChatViewState extends State<ChatView> {
           RoundIconButton(
             icon: Icons.close_rounded,
             tooltip: '收起（Esc）',
-            color: Colors.transparent,
-            iconColor: AppColors.inkSoft,
+            size: 32,
             onPressed: controller.closeChat,
           ),
         ],
@@ -200,7 +249,6 @@ class _ChatViewState extends State<ChatView> {
   }
 
   /// 当前正在执行的任务状态：目标、第几步、正在调用的工具、最近动作。
-  /// 与桌面气泡共用 TaskStatusChip，数据来自 AgentActivity。
   Widget _statusBanner(Color accent) {
     final activity = controller.agentActivity;
     final detail = activity.statusDetail;
@@ -208,10 +256,10 @@ class _ChatViewState extends State<ChatView> {
     final recent = activity.recent.take(2).toList();
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(14, 8, 14, 9),
+      padding: const EdgeInsets.fromLTRB(Insets.x4, 9, Insets.x4, 10),
       decoration: BoxDecoration(
-        color: accent.withValues(alpha: 0.045),
-        border: Border(bottom: BorderSide(color: accent.withValues(alpha: 0.12))),
+        color: tintOf(accent, 0.06),
+        border: const Border(bottom: BorderSide(color: AppColors.lineSoft)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -219,17 +267,21 @@ class _ChatViewState extends State<ChatView> {
         children: [
           Row(
             children: [
-              Icon(Icons.auto_mode_rounded, size: 13, color: accent),
+              Icon(Icons.auto_mode_rounded, size: 13, color: inkOn(accent)),
               const SizedBox(width: 6),
               Text(
                 detail.title,
-                style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: accent),
+                style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: inkOn(accent)),
               ),
               const Spacer(),
               if (activity.goalTitle != null && activity.stepLimit > 0)
                 Text(
                   '${activity.step}/${activity.stepLimit} 步',
-                  style: const TextStyle(fontSize: 10.5, color: AppColors.inkSoft),
+                  style:
+                      const TextStyle(fontSize: 11, color: AppColors.inkSoft),
                 ),
             ],
           ),
@@ -239,31 +291,33 @@ class _ChatViewState extends State<ChatView> {
             accent: accent,
             busy: activity.busy,
             ok: activity.lastOk,
-            maxWidth: 360,
+            maxWidth: 340,
           ),
           if (recent.isNotEmpty) ...[
-            const SizedBox(height: 5),
-            ...recent.map((line) => Padding(
-                  padding: const EdgeInsets.only(top: 2),
-                  child: Row(
-                    children: [
-                      Text(line.timeLabel,
-                          style: const TextStyle(fontSize: 10, color: AppColors.inkSoft)),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          line.label,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: line.ok ? AppColors.inkSoft : const Color(0xFFC45B4A),
-                          ),
+            const SizedBox(height: 4),
+            for (final line in recent)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Row(
+                  children: [
+                    Text(line.timeLabel,
+                        style: const TextStyle(
+                            fontSize: 10.5, color: AppColors.inkFaint)),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        line.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: line.ok ? AppColors.inkSoft : AppColors.danger,
                         ),
                       ),
-                    ],
-                  ),
-                )),
+                    ),
+                  ],
+                ),
+              ),
           ],
         ],
       ),
@@ -279,11 +333,9 @@ class _ChatViewState extends State<ChatView> {
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        backgroundColor: const Color(0xFFFFFBF4),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Text('${pet?.name ?? '它'}记得的事'),
         content: SizedBox(
-          width: 320,
+          width: 340,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -291,42 +343,55 @@ class _ChatViewState extends State<ChatView> {
               Row(
                 children: [
                   TagChip(label: memory.growth.label, color: accent),
-                  const SizedBox(width: 8),
-                  Text(memory.growth.hint, style: const TextStyle(fontSize: 11.5, color: AppColors.inkSoft)),
+                  const SizedBox(width: Insets.x2),
+                  Expanded(
+                    child: Text(
+                      memory.growth.hint,
+                      style: const TextStyle(
+                          fontSize: 11.5,
+                          color: AppColors.inkSoft,
+                          height: 1.4),
+                    ),
+                  ),
                 ],
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: Insets.x3),
               ClipRRect(
-                borderRadius: BorderRadius.circular(999),
+                borderRadius: BorderRadius.circular(Radii.pill),
                 child: LinearProgressIndicator(
-                  value: memory.growthProgress,
-                  minHeight: 6,
-                  backgroundColor: const Color(0xFFF0E7DA),
-                  color: pet?.accent ?? Theme.of(context).colorScheme.primary,
-                ),
+                    value: memory.growthProgress, minHeight: 6),
               ),
-              const SizedBox(height: 12),
-              Text(
-                '认识 ${memory.daysTogether} 天 · 摸过 ${memory.taps} 次 · 聊过 ${memory.chats} 轮',
-                style: const TextStyle(fontSize: 12.5),
+              const SizedBox(height: Insets.x3),
+              Row(
+                children: [
+                  _stat('${memory.daysTogether}', '天', '认识'),
+                  _stat('${memory.taps}', '次', '摸过'),
+                  _stat('${memory.chats}', '轮', '聊过'),
+                ],
               ),
               if (memory.topics.isNotEmpty) ...[
-                const SizedBox(height: 8),
+                const SizedBox(height: Insets.x3),
                 Text(
-                  '常聊的话题：${memory.topics.keys.take(4).join('、')}',
-                  style: const TextStyle(fontSize: 12.5, color: AppColors.inkSoft),
+                  '常聊：${memory.topics.keys.take(4).join('、')}',
+                  style: const TextStyle(
+                      fontSize: 12.5, color: AppColors.inkSoft, height: 1.5),
                 ),
               ],
               if (memory.notes.isNotEmpty) ...[
-                const SizedBox(height: 10),
-                const Text('记下的事', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700)),
+                const SizedBox(height: Insets.x3),
+                const Text('记下的事',
+                    style:
+                        TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700)),
                 const SizedBox(height: 4),
-                ...memory.notes.reversed.take(5).map(
-                      (note) => Padding(
-                        padding: const EdgeInsets.only(bottom: 2),
-                        child: Text('· $note', style: const TextStyle(fontSize: 12, color: AppColors.inkSoft)),
-                      ),
-                    ),
+                for (final note in memory.notes.reversed.take(5))
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 2),
+                    child: Text('· $note',
+                        style: const TextStyle(
+                            fontSize: 12,
+                            height: 1.5,
+                            color: AppColors.inkSoft)),
+                  ),
               ],
             ],
           ),
@@ -357,100 +422,165 @@ class _ChatViewState extends State<ChatView> {
     if (mounted) setState(() {});
   }
 
+  Widget _stat(String value, String unit, String label) {
+    return Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Text(value,
+                  style: const TextStyle(
+                      fontSize: 18, fontWeight: FontWeight.w700, height: 1.2)),
+              const SizedBox(width: 2),
+              Text(unit,
+                  style:
+                      const TextStyle(fontSize: 11, color: AppColors.inkFaint)),
+            ],
+          ),
+          Text(label,
+              style: const TextStyle(fontSize: 11.5, color: AppColors.inkSoft)),
+        ],
+      ),
+    );
+  }
+
   Widget _messages(Color accent) {
-    if (controller.messages.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Opacity(
-              opacity: 0.9,
-              child: Image(image: pet!.imageFor(PetMood.idle), width: 110, height: 110),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '「${pet!.personality.catchphrase}」',
-              style: const TextStyle(fontSize: 12.5, color: AppColors.inkSoft),
-            ),
-          ],
-        ),
-      );
+    if (controller.messages.isEmpty && controller.streamingText == null) {
+      return _emptyState(accent);
     }
     final streaming = controller.streamingText;
     final extra = streaming == null ? 0 : 1;
-    return ListView.builder(
-      controller: _scroll,
-      padding: const EdgeInsets.fromLTRB(14, 16, 14, 10),
-      itemCount: controller.messages.length + extra,
-      itemBuilder: (context, index) {
-        if (index >= controller.messages.length) {
-          return _bubble(
-            ChatMessage(role: ChatRole.pet, text: streaming!.isEmpty ? '…' : streaming, at: DateTime.now()),
-            accent,
-          );
-        }
-        final message = controller.messages[index];
-        return _bubble(message, accent);
-      },
+    return SelectionArea(
+      child: ListView.builder(
+        controller: _scroll,
+        padding: const EdgeInsets.fromLTRB(
+            Insets.x4, Insets.x4, Insets.x4, Insets.x2),
+        itemCount: controller.messages.length + extra,
+        itemBuilder: (context, index) {
+          if (index >= controller.messages.length) {
+            return _bubble(
+              ChatMessage(
+                  role: ChatRole.pet,
+                  text: streaming!.isEmpty ? '…' : streaming,
+                  at: DateTime.now()),
+              accent,
+            );
+          }
+          return _bubble(controller.messages[index], accent);
+        },
+      ),
+    );
+  }
+
+  /// 空态：不只是摆一张图，直接给三个能点的开场，省掉用户想话题的成本。
+  Widget _emptyState(Color accent) {
+    const starters = <(IconData, String, String)>[
+      (Icons.waving_hand_rounded, '摸摸头', '先让它开心一下'),
+      (Icons.storage_rounded, '看看磁盘空间', '顺手办件正事'),
+      (Icons.emoji_emotions_outlined, '讲个笑话', '随便聊两句'),
+    ];
+    return SingleChildScrollView(
+      padding:
+          const EdgeInsets.fromLTRB(Insets.x5, Insets.x5, Insets.x5, Insets.x3),
+      child: Column(
+        children: [
+          Image(image: pet!.imageFor(PetMood.idle), width: 96, height: 96),
+          const SizedBox(height: Insets.x3),
+          Text(
+            '「${pet!.personality.catchphrase}」',
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+                fontSize: 13, height: 1.6, color: AppColors.inkSoft),
+          ),
+          const SizedBox(height: Insets.x5),
+          for (final item in starters)
+            Padding(
+              padding: const EdgeInsets.only(bottom: Insets.x2),
+              child: _StarterRow(
+                icon: item.$1,
+                title: item.$2,
+                hint: item.$3,
+                accent: accent,
+                onTap: () => _send(item.$2),
+              ),
+            ),
+        ],
+      ),
     );
   }
 
   Widget _bubble(ChatMessage message, Color accent) {
     final isUser = message.role == ChatRole.user;
-    final bubble = Container(
-      constraints: const BoxConstraints(maxWidth: 268),
-      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
-      decoration: BoxDecoration(
-        color: isUser ? accent : accent.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.only(
-          topLeft: const Radius.circular(15),
-          topRight: const Radius.circular(15),
-          bottomLeft: Radius.circular(isUser ? 15 : 4),
-          bottomRight: Radius.circular(isUser ? 4 : 15),
-        ),
-      ),
-      child: Text(
-        message.text,
-        style: TextStyle(
-          fontSize: 13,
-          height: 1.5,
-          color: isUser ? Colors.white : AppColors.ink,
-        ),
-      ),
-    );
-
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        mainAxisAlignment: isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (!isUser) ...[
-            ClipOval(
-              child: Image(image: pet!.imageFor(PetMood.idle), width: 26, height: 26, fit: BoxFit.cover),
+      padding: const EdgeInsets.only(bottom: Insets.x3),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final maxWidth = constraints.maxWidth * 0.78;
+          final bubble = Container(
+            constraints: BoxConstraints(maxWidth: maxWidth),
+            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
+            decoration: BoxDecoration(
+              color: isUser ? accent : AppColors.surfaceAlt,
+              borderRadius: BorderRadius.only(
+                topLeft: const Radius.circular(14),
+                topRight: const Radius.circular(14),
+                bottomLeft: Radius.circular(isUser ? 14 : 4),
+                bottomRight: Radius.circular(isUser ? 4 : 14),
+              ),
             ),
-            const SizedBox(width: 7),
-          ],
-          Flexible(child: bubble),
-        ],
+            child: Text(
+              message.text,
+              style: TextStyle(
+                fontSize: 13,
+                height: 1.55,
+                color: isUser ? readableOn(accent) : AppColors.ink,
+              ),
+            ),
+          );
+          return Row(
+            mainAxisAlignment:
+                isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (!isUser) ...[
+                ClipOval(
+                  child: Image(
+                      image: pet!.imageFor(PetMood.idle),
+                      width: 26,
+                      height: 26,
+                      fit: BoxFit.cover),
+                ),
+                const SizedBox(width: Insets.x2),
+              ],
+              Flexible(child: bubble),
+            ],
+          );
+        },
       ),
     );
   }
 
   Widget _typingRow(Color accent) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+      padding: const EdgeInsets.fromLTRB(Insets.x4, 0, Insets.x4, Insets.x2),
       child: Row(
         children: [
           ClipOval(
-            child: Image(image: pet!.imageFor(PetMood.idle), width: 26, height: 26, fit: BoxFit.cover),
+            child: Image(
+                image: pet!.imageFor(PetMood.idle),
+                width: 26,
+                height: 26,
+                fit: BoxFit.cover),
           ),
-          const SizedBox(width: 7),
+          const SizedBox(width: Insets.x2),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
             decoration: BoxDecoration(
-              color: accent.withValues(alpha: 0.10),
-              borderRadius: BorderRadius.circular(15),
+              color: AppColors.surfaceAlt,
+              borderRadius: BorderRadius.circular(14),
             ),
             child: TypingDots(color: accent),
           ),
@@ -460,46 +590,39 @@ class _ChatViewState extends State<ChatView> {
   }
 
   Widget _errorBanner() {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(14, 0, 14, 8),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFFF3E0),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFF0D3A8)),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.cloud_off_rounded, size: 14, color: Color(0xFFB57B2A)),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text(
-              (controller.chatError ?? '').length <= 90
-                  ? (controller.chatError ?? '在线模型没连上，先用本地小脑回答。')
-                  : '在线模型没连上，先用本地小脑回答。',
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 11, color: Color(0xFF8A5D1E)),
-            ),
+    final long = (controller.chatError ?? '').length > 90;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(Insets.x4, 0, Insets.x4, Insets.x2),
+      child: AppBanner(
+        tone: BannerTone.warning,
+        icon: Icons.cloud_off_rounded,
+        text: long
+            ? '在线模型没连上，先用本地小脑回答。'
+            : (controller.chatError ?? '在线模型没连上，先用本地小脑回答。'),
+        action: TextButton(
+          onPressed: () => controller.openPanel(PanelTab.settings),
+          style: TextButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            minimumSize: const Size(0, 28),
+            foregroundColor: AppColors.warning,
+            textStyle:
+                const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
           ),
-          InkWell(
-            onTap: () => controller.openPanel(PanelTab.settings),
-            child: const Text('去设置', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF8A5D1E))),
-          ),
-        ],
+          child: const Text('去设置'),
+        ),
       ),
     );
   }
 
   Widget _quickChips(Color accent) {
-    const quick = ['摸摸头', '看看磁盘空间', '列出工作区文件', '查看进程', '讲个笑话'];
+    const quick = ['摸摸头', '看看磁盘空间', '列出工作区文件', '讲个笑话'];
     return SizedBox(
-      height: 34,
+      height: 38,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 14),
+        padding: const EdgeInsets.symmetric(horizontal: Insets.x4),
         itemCount: quick.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        separatorBuilder: (_, __) => const SizedBox(width: 6),
         itemBuilder: (context, index) => Center(
           child: PillButton(
             label: quick[index],
@@ -514,8 +637,10 @@ class _ChatViewState extends State<ChatView> {
   }
 
   Widget _inputBar(Color accent) {
+    final canSend = _input.text.trim().isNotEmpty && !controller.typing;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
+      padding:
+          const EdgeInsets.fromLTRB(Insets.x3, Insets.x1, Insets.x3, Insets.x3),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
@@ -534,21 +659,107 @@ class _ChatViewState extends State<ChatView> {
               ),
             ),
           ),
-          const SizedBox(width: 8),
-          Material(
-            color: accent,
-            shape: const CircleBorder(),
-            child: InkWell(
-              customBorder: const CircleBorder(),
-              onTap: controller.typing ? null : () => _send(),
-              child: const SizedBox(
-                width: 42,
-                height: 42,
-                child: Icon(Icons.arrow_upward_rounded, color: Colors.white, size: 20),
+          const SizedBox(width: Insets.x2),
+          AnimatedContainer(
+            duration: Motion.fast,
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: canSend ? accent : AppColors.surfaceSunken,
+              shape: BoxShape.circle,
+            ),
+            child: Material(
+              color: Colors.transparent,
+              shape: const CircleBorder(),
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: canSend ? () => _send() : null,
+                child: Icon(
+                  Icons.arrow_upward_rounded,
+                  color: canSend ? readableOn(accent) : AppColors.inkFaint,
+                  size: 19,
+                ),
               ),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// 空态里的开场建议行：图标 + 标题 + 说明，右侧箭头。
+class _StarterRow extends StatefulWidget {
+  const _StarterRow({
+    required this.icon,
+    required this.title,
+    required this.hint,
+    required this.accent,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String hint;
+  final Color accent;
+  final VoidCallback onTap;
+
+  @override
+  State<_StarterRow> createState() => _StarterRowState();
+}
+
+class _StarterRowState extends State<_StarterRow> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        behavior: HitTestBehavior.opaque,
+        child: AnimatedContainer(
+          duration: Motion.fast,
+          padding:
+              const EdgeInsets.symmetric(horizontal: Insets.x3, vertical: 10),
+          decoration: BoxDecoration(
+            color: _hover ? AppColors.surfaceAlt : AppColors.surface,
+            borderRadius: BorderRadius.circular(Radii.control),
+            border: Border.all(
+                color: _hover
+                    ? Color.lerp(AppColors.line, widget.accent, 0.4)!
+                    : AppColors.line),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 28,
+                height: 28,
+                decoration: BoxDecoration(
+                    color: tintOf(widget.accent, 0.14), shape: BoxShape.circle),
+                child: Icon(widget.icon, size: 15, color: inkOn(widget.accent)),
+              ),
+              const SizedBox(width: Insets.x3),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(widget.title,
+                        style: const TextStyle(
+                            fontSize: 12.5, fontWeight: FontWeight.w600)),
+                    Text(widget.hint,
+                        style: const TextStyle(
+                            fontSize: 11, color: AppColors.inkFaint)),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded,
+                  size: 16, color: AppColors.inkFaint),
+            ],
+          ),
+        ),
       ),
     );
   }

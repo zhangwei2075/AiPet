@@ -16,7 +16,12 @@
 <p align="center">
   <img src="docs/images/pet.png" width="30%" alt="桌面上的宠物" />
   <img src="docs/images/chat.png" width="35%" alt="聊天面板" />
-  <img src="docs/images/panel.png" width="55%" alt="管理面板" />
+  <img src="docs/images/panel.png" width="55%" alt="宠物与设置面板" />
+</p>
+
+<p align="center">
+  <img src="docs/images/create.png" width="48%" alt="照片生成：四步进度、虚线选择区、拍摄建议" />
+  <img src="docs/images/settings.png" width="48%" alt="设置：分区锚点、分组卡片" />
 </p>
 
 ## 现状
@@ -214,6 +219,7 @@ Flutter 构建桌面端时要把插件源码目录符号链接到 `app\windows\f
 ## 文档
 
 - [架构说明](docs/architecture.md) —— 状态中枢、动画引擎、窗口与穿透的实现方式
+- [界面设计](docs/ui.md) —— 设计令牌、组件清单、各界面要点与无障碍检查清单
 - [平台说明](docs/platforms.md) —— Windows 透明窗口 / 鼠标穿透 / Android 悬浮窗 / 已知限制
 - [宠物包格式](docs/petpack.md) —— `petpack.json` 字段含义与自制方法
 - [PetForge 接口](docs/petforge-api.md) —— HTTP 与 CLI 用法

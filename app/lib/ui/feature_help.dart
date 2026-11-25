@@ -22,18 +22,21 @@ class FeatureHelp extends StatelessWidget {
   Widget build(BuildContext context) {
     return Tooltip(
       richMessage: TextSpan(
-        style: const TextStyle(fontSize: 12, height: 1.55, color: Colors.white),
+        style: const TextStyle(fontSize: 12, height: 1.6, color: Colors.white),
         children: [
-          TextSpan(text: label, style: const TextStyle(fontWeight: FontWeight.w700)),
-          TextSpan(text: '\n$description'),
+          TextSpan(
+              text: label, style: const TextStyle(fontWeight: FontWeight.w700)),
+          TextSpan(
+              text: '\n$description',
+              style: TextStyle(color: Colors.white.withValues(alpha: 0.9))),
         ],
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       margin: const EdgeInsets.symmetric(horizontal: 16),
       constraints: const BoxConstraints(maxWidth: 320),
       decoration: BoxDecoration(
-        color: AppColors.ink.withValues(alpha: 0.94),
-        borderRadius: BorderRadius.circular(8),
+        color: AppColors.ink.withValues(alpha: 0.96),
+        borderRadius: BorderRadius.circular(Radii.sm),
       ),
       preferBelow: true,
       waitDuration: const Duration(milliseconds: 300),
@@ -46,7 +49,7 @@ class FeatureHelp extends StatelessWidget {
 /// 标题右侧的 ⓘ 标记，提示「这一项有说明」。
 /// 不自带 Tooltip —— 外层 [FeatureHelp] 已经包住整行，避免两层提示互相抢焦点。
 class HelpBadge extends StatelessWidget {
-  const HelpBadge({super.key, this.size = 14});
+  const HelpBadge({super.key, this.size = 13});
 
   final double size;
 
@@ -56,7 +59,7 @@ class HelpBadge extends StatelessWidget {
         child: Icon(
           Icons.info_outline_rounded,
           size: size,
-          color: AppColors.inkSoft.withValues(alpha: 0.8),
+          color: AppColors.inkFaint,
         ),
       );
 }
@@ -70,7 +73,14 @@ Widget helpTitle(
     Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(label, style: TextStyle(fontSize: fontSize, fontWeight: fontWeight)),
+        Flexible(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: fontSize, fontWeight: fontWeight),
+          ),
+        ),
         const HelpBadge(),
       ],
     );

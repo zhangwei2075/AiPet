@@ -53,16 +53,16 @@ class SpeechBubble extends StatelessWidget {
             onTap: onTap,
             child: Container(
               constraints: BoxConstraints(maxWidth: maxWidth),
-              padding: const EdgeInsets.fromLTRB(16, 11, 12, 12),
+              padding: const EdgeInsets.fromLTRB(14, 10, 10, 11),
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.97),
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: accent.withValues(alpha: 0.35), width: 1.2),
+                color: AppColors.surface,
+                borderRadius: BorderRadius.circular(Radii.card),
+                border: Border.all(color: AppColors.line),
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFF6B4E3C).withValues(alpha: 0.16),
+                    color: const Color(0xFF3B2A1C).withValues(alpha: 0.10),
                     blurRadius: 18,
-                    offset: const Offset(0, 8),
+                    offset: const Offset(0, 7),
                   ),
                 ],
               ),
@@ -79,7 +79,8 @@ class SpeechBubble extends StatelessWidget {
                           text,
                           maxLines: maxLines,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 13, height: 1.5, color: AppColors.ink),
+                          style: const TextStyle(
+                              fontSize: 13, height: 1.5, color: AppColors.ink),
                         ),
                       ),
                       if (onClose != null)
@@ -90,7 +91,8 @@ class SpeechBubble extends StatelessWidget {
                             borderRadius: BorderRadius.circular(20),
                             child: const Padding(
                               padding: EdgeInsets.all(3),
-                              child: Icon(Icons.close_rounded, size: 14, color: AppColors.inkSoft),
+                              child: Icon(Icons.close_rounded,
+                                  size: 14, color: AppColors.inkSoft),
                             ),
                           ),
                         ),
@@ -111,7 +113,8 @@ class SpeechBubble extends StatelessWidget {
           ),
           CustomPaint(
             size: const Size(18, 9),
-            painter: _TailPainter(color: Colors.white.withValues(alpha: 0.97), border: accent.withValues(alpha: 0.35)),
+            painter:
+                _TailPainter(color: AppColors.surface, border: AppColors.line),
           ),
         ],
       ),
@@ -143,7 +146,8 @@ class _TailPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _TailPainter oldDelegate) => oldDelegate.color != color;
+  bool shouldRepaint(covariant _TailPainter oldDelegate) =>
+      oldDelegate.color != color;
 }
 
 /// 宠物没有气泡时，露出一句轻提示；有任务在跑时同时挂一条状态。
@@ -170,9 +174,10 @@ class BubbleHint extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.82),
-          borderRadius: BorderRadius.circular(status == null ? 999 : 14),
-          border: Border.all(color: accent.withValues(alpha: 0.22)),
+          color: AppColors.surface.withValues(alpha: 0.92),
+          borderRadius: BorderRadius.circular(
+              status == null ? Radii.pill : Radii.control),
+          border: Border.all(color: AppColors.line),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -183,7 +188,9 @@ class BubbleHint extends StatelessWidget {
               children: [
                 Icon(Icons.auto_awesome_rounded, size: 12, color: accent),
                 const SizedBox(width: 6),
-                Text(text, style: const TextStyle(fontSize: 11.5, color: AppColors.inkSoft)),
+                Text(text,
+                    style: const TextStyle(
+                        fontSize: 11.5, color: AppColors.inkSoft)),
               ],
             ),
             if (status != null) ...[
@@ -221,16 +228,15 @@ class TaskStatusChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = busy
-        ? const Color(0xFFD98B2B)
-        : (ok ? const Color(0xFF3E9B68) : const Color(0xFFC45B4A));
+    final color =
+        busy ? AppColors.warning : (ok ? AppColors.success : AppColors.danger);
     return Container(
       constraints: BoxConstraints(maxWidth: maxWidth),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(9),
-        border: Border.all(color: color.withValues(alpha: 0.28)),
+        borderRadius: BorderRadius.circular(Radii.xs),
+        border: Border.all(color: color.withValues(alpha: 0.24)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -268,9 +274,11 @@ class TypingDots extends StatefulWidget {
   State<TypingDots> createState() => _TypingDotsState();
 }
 
-class _TypingDotsState extends State<TypingDots> with SingleTickerProviderStateMixin {
-  late final AnimationController _controller =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 1100))..repeat();
+class _TypingDotsState extends State<TypingDots>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 1100))
+    ..repeat();
 
   @override
   void dispose() {

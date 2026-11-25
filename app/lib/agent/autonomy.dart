@@ -160,14 +160,14 @@ class GoalStore {
   Future<List<Goal>> load() async {
     final prefs = await _instance();
     final raw = prefs.getString(_key);
-    if (raw == null || raw.isEmpty) return const [];
+    if (raw == null || raw.isEmpty) return <Goal>[];
     try {
       return [
         for (final item in jsonDecode(raw) as List)
           Goal.fromJson((item as Map).cast<String, dynamic>()),
       ];
     } catch (_) {
-      return const [];
+      return <Goal>[];
     }
   }
 
@@ -271,7 +271,8 @@ class AutonomyLoop {
   /// 交给主人一句即时回执；真正的执行在后台。
   Future<String> submit(String title, {String origin = 'user'}) async {
     final clean = title.trim();
-    final goals = await _store.load();
+    // 拷一份再改：load() 在空库/解析失败时返回的是不可变列表。
+    final goals = [...await _store.load()];
     final goal = Goal(
       id: 'goal-${_now().microsecondsSinceEpoch}',
       title: clean.isEmpty ? '未命名目标' : clean,

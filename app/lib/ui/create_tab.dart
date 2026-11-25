@@ -42,14 +42,16 @@ class CreateTabState extends State<CreateTab> {
       final bytes = await file.readAsBytes();
       if (bytes.isEmpty) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('读取不到图片内容，换一张试试')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('读取不到图片内容，换一张试试')));
         return;
       }
       controller.loadSource(bytes, file.name);
       _name.text = '';
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('选择图片失败：$error')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('选择图片失败：$error')));
     } finally {
       if (mounted) setState(() => _picking = false);
     }
@@ -61,17 +63,10 @@ class CreateTabState extends State<CreateTab> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            const Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('照片生成宠物', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
-                SizedBox(height: 3),
-              ],
-            ),
-            const Spacer(),
+        AppPageHeader(
+          title: '照片生成',
+          subtitle: '一张照片，抠成贴纸，再推导性格和名字',
+          actions: [
             if (controller.sourceBytes != null && preview == null)
               PillButton(
                 label: controller.generating ? '生成中…' : '重新选择',
@@ -82,17 +77,18 @@ class CreateTabState extends State<CreateTab> {
               ),
           ],
         ),
-        const SizedBox(height: 16),
+        _stepper(),
+        const SizedBox(height: Insets.x4),
         Expanded(
           child: preview != null
               ? _resultView(preview)
               : LayoutBuilder(
                   builder: (context, constraints) {
-                    if (constraints.maxWidth < 620) {
+                    if (constraints.maxWidth < 560) {
                       return Column(
                         children: [
-                          SizedBox(height: 220, child: _sourceCard()),
-                          const SizedBox(height: 14),
+                          SizedBox(height: 200, child: _sourceCard()),
+                          const SizedBox(height: Insets.x3),
                           Expanded(child: _formCard()),
                         ],
                       );
@@ -101,7 +97,7 @@ class CreateTabState extends State<CreateTab> {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         Expanded(flex: 5, child: _sourceCard()),
-                        const SizedBox(width: 18),
+                        const SizedBox(width: Insets.x5),
                         Expanded(flex: 6, child: _formCard()),
                       ],
                     );
@@ -112,51 +108,148 @@ class CreateTabState extends State<CreateTab> {
     );
   }
 
+  /// 四步进度：照片 → 抠图 → 性格 → 领养。
+  Widget _stepper() {
+    final accent = Theme.of(context).colorScheme.primary;
+    final done = controller.preview != null;
+    final stage = controller.generating
+        ? (controller.generationProgress < 0.3
+            ? 1
+            : (controller.generationProgress < 0.8 ? 2 : 3))
+        : (done ? 4 : (controller.sourceBytes != null ? 1 : 0));
+    const labels = ['照片', '抠图', '性格', '领养'];
+    return Row(
+      children: [
+        for (var index = 0; index < labels.length; index++) ...[
+          if (index > 0)
+            Expanded(
+              child: AnimatedContainer(
+                duration: Motion.base,
+                height: 1.5,
+                margin: const EdgeInsets.symmetric(horizontal: 8),
+                color: index < stage
+                    ? accent.withValues(alpha: 0.5)
+                    : AppColors.line,
+              ),
+            ),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              AnimatedContainer(
+                duration: Motion.base,
+                width: 20,
+                height: 20,
+                decoration: BoxDecoration(
+                  color: index < stage ? accent : AppColors.surface,
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: index < stage
+                        ? accent
+                        : (index == stage
+                            ? accent.withValues(alpha: 0.6)
+                            : AppColors.line),
+                    width: index == stage ? 1.6 : 1,
+                  ),
+                ),
+                child: Icon(
+                  index < stage ? Icons.check_rounded : Icons.circle,
+                  size: index < stage ? 12 : 5,
+                  color: index < stage
+                      ? readableOn(accent)
+                      : (index == stage ? accent : AppColors.line),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                labels[index],
+                style: TextStyle(
+                  fontSize: 12,
+                  color: index <= stage ? AppColors.ink : AppColors.inkFaint,
+                  fontWeight:
+                      index <= stage ? FontWeight.w600 : FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+
   Widget _sourceCard() {
     final bytes = controller.sourceBytes;
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.55),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.line),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: bytes == null
-          ? InkWell(
-              onTap: _picking ? null : _pick,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  if (_picking)
-                    const SizedBox(
-                      width: 26,
-                      height: 26,
-                      child: CircularProgressIndicator(strokeWidth: 2.4),
-                    )
-                  else
-                    Icon(Icons.cloud_upload_outlined, size: 42, color: Theme.of(context).colorScheme.primary),
-                  const SizedBox(height: 14),
-                  const Text('点击选择照片', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
-                  const SizedBox(height: 6),
-                ],
-              ),
-            )
-          : Stack(
-              fit: StackFit.expand,
-              children: [
-                Image.memory(bytes, fit: BoxFit.contain, filterQuality: FilterQuality.medium),
-                Positioned(
-                  left: 10,
-                  top: 10,
-                  child: PillButton(label: '换一张', dense: true, filled: false, icon: Icons.swap_horiz_rounded, onPressed: _picking ? null : _pick),
+    final accent = Theme.of(context).colorScheme.primary;
+    if (bytes == null) {
+      return SizedBox(
+        width: double.infinity,
+        child: _HoverDropZone(
+          onTap: _picking ? null : _pick,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (_picking)
+                const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2.2))
+              else
+                Container(
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(
+                      color: tintOf(accent, 0.12), shape: BoxShape.circle),
+                  child: Icon(Icons.add_photo_alternate_outlined,
+                      size: 22, color: inkOn(accent)),
                 ),
-              ],
+              const SizedBox(height: Insets.x3),
+              const Text('选一张照片',
+                  style:
+                      TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 5),
+              const Text(
+                '正脸、背景干净的照片效果最好',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 11.5, color: AppColors.inkFaint),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(Radii.card),
+      child: Container(
+        decoration: BoxDecoration(
+          color: AppColors.surfaceAlt,
+          borderRadius: BorderRadius.circular(Radii.card),
+          border: Border.all(color: AppColors.line),
+        ),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(Insets.x3),
+              child: Image.memory(bytes,
+                  fit: BoxFit.contain, filterQuality: FilterQuality.medium),
             ),
+            Positioned(
+              left: Insets.x2,
+              top: Insets.x2,
+              child: PillButton(
+                label: '换一张',
+                dense: true,
+                filled: false,
+                icon: Icons.swap_horiz_rounded,
+                onPressed: _picking ? null : _pick,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
   Widget _formCard() {
-    final accent = Theme.of(context).colorScheme.primary;
     final hasSource = controller.sourceBytes != null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -166,60 +259,74 @@ class CreateTabState extends State<CreateTab> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _steps(),
-                const SizedBox(height: 18),
-                const SectionLabel('名字（可留空，自动取名）'),
-                TextField(
-                  controller: _name,
-                  enabled: hasSource && !controller.generating,
-                  decoration: const InputDecoration(hintText: '比如：小橘'),
-                  style: const TextStyle(fontSize: 13),
+                AppField(
+                  label: '名字',
+                  hint: '留空会按照片的颜色自动取名',
+                  child: TextField(
+                    controller: _name,
+                    enabled: hasSource && !controller.generating,
+                    decoration: const InputDecoration(hintText: '比如：小橘'),
+                    style: const TextStyle(fontSize: 13),
+                  ),
                 ),
-                const SizedBox(height: 16),
-                const SectionLabel('贴纸风格'),
-                Wrap(
-                  spacing: 8,
+                const SizedBox(height: Insets.x4),
+                const Text(
+                  '贴纸风格',
+                  style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.inkSoft),
+                ),
+                const SizedBox(height: 6),
+                Row(
                   children: [
-                    _styleChip('sticker', '白边贴纸', '推荐'),
-                    _styleChip('soft', '柔光', '更接近原图'),
-                    _styleChip('original', '原图', '不调色'),
+                    Expanded(child: _styleCard('sticker', '白边贴纸', '推荐')),
+                    const SizedBox(width: Insets.x2),
+                    Expanded(child: _styleCard('soft', '柔光', '更接近原图')),
+                    const SizedBox(width: Insets.x2),
+                    Expanded(child: _styleCard('original', '原图', '不调色')),
                   ],
                 ),
-                const SizedBox(height: 18),
-                _forgeStatus(),
+                const SizedBox(height: Insets.x4),
+                AppBanner(
+                  tone: controller.forgeOnline
+                      ? BannerTone.success
+                      : BannerTone.warning,
+                  text: controller.forgeOnline
+                      ? '形象工坊已连接 · ${controller.settings.forgeUrl}'
+                      : '形象工坊未连接，将使用本地徽章模式（也能生成，抠图更简单）',
+                ),
                 if (controller.generating) ...[
-                  const SizedBox(height: 14),
+                  const SizedBox(height: Insets.x3),
                   ClipRRect(
-                    borderRadius: BorderRadius.circular(99),
+                    borderRadius: BorderRadius.circular(Radii.pill),
                     child: LinearProgressIndicator(
-                      value: controller.generationProgress,
-                      minHeight: 6,
-                      color: accent,
-                      backgroundColor: accent.withValues(alpha: 0.12),
-                    ),
+                        value: controller.generationProgress),
                   ),
-                  const SizedBox(height: 8),
-                  Text(controller.generationStage, style: const TextStyle(fontSize: 11, color: AppColors.inkSoft)),
+                  const SizedBox(height: 6),
+                  Text(controller.generationStage,
+                      style: const TextStyle(
+                          fontSize: 11.5, color: AppColors.inkSoft)),
                 ],
                 if (controller.generationError != null) ...[
-                  const SizedBox(height: 12),
-                  Text(
-                    controller.generationError!,
-                    style: const TextStyle(fontSize: 11, color: AppColors.danger, height: 1.45),
-                  ),
+                  const SizedBox(height: Insets.x3),
+                  AppBanner(
+                      tone: BannerTone.danger,
+                      text: controller.generationError!),
                 ],
                 if (controller.generationNotice != null) ...[
-                  const SizedBox(height: 12),
-                  Text(
-                    controller.generationNotice!,
-                    style: const TextStyle(fontSize: 11, color: Color(0xFF9A6A1E), height: 1.45),
-                  ),
+                  const SizedBox(height: Insets.x3),
+                  AppBanner(
+                      tone: BannerTone.warning,
+                      text: controller.generationNotice!),
                 ],
+                const SizedBox(height: Insets.x5),
+                const _Tips(),
               ],
             ),
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: Insets.x3),
         Row(
           children: [
             Expanded(
@@ -227,16 +334,19 @@ class CreateTabState extends State<CreateTab> {
                 label: controller.generating ? '正在生成…' : '开始生成',
                 icon: Icons.auto_awesome_rounded,
                 enabled: hasSource && !controller.generating,
-                onPressed: () => controller.generate(style: _style, name: _name.text),
+                expand: true,
+                onPressed: () =>
+                    controller.generate(style: _style, name: _name.text),
               ),
             ),
             if (controller.sourceBytes != null) ...[
-              const SizedBox(width: 8),
+              const SizedBox(width: Insets.x2),
               PillButton(
                 label: '清除',
                 filled: false,
                 dense: true,
-                onPressed: controller.generating ? null : controller.resetGeneration,
+                onPressed:
+                    controller.generating ? null : controller.resetGeneration,
               ),
             ],
           ],
@@ -245,106 +355,49 @@ class CreateTabState extends State<CreateTab> {
     );
   }
 
-  Widget _styleChip(String value, String label, String hint) {
+  Widget _styleCard(String value, String label, String hint) {
     final selected = _style == value;
     final accent = Theme.of(context).colorScheme.primary;
-    return InkWell(
-      borderRadius: BorderRadius.circular(14),
+    return GestureDetector(
       onTap: () => setState(() => _style = value),
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+        duration: Motion.fast,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
         decoration: BoxDecoration(
-          color: selected ? accent.withValues(alpha: 0.12) : Colors.white.withValues(alpha: 0.6),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: selected ? accent : AppColors.line, width: selected ? 1.4 : 1),
+          color: selected ? tintOf(accent, 0.10) : AppColors.surface,
+          borderRadius: BorderRadius.circular(Radii.control),
+          border: Border.all(
+              color: selected ? accent : AppColors.line,
+              width: selected ? 1.4 : 1),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              label,
-              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: selected ? AppColors.ink : AppColors.inkSoft),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                      color: selected ? AppColors.ink : AppColors.inkSoft,
+                    ),
+                  ),
+                ),
+                if (selected)
+                  Icon(Icons.check_circle_rounded,
+                      size: 14, color: inkOn(accent)),
+              ],
             ),
-            const SizedBox(height: 1),
-            Text(hint, style: const TextStyle(fontSize: 9.5, color: AppColors.inkSoft)),
+            const SizedBox(height: 2),
+            Text(hint,
+                style:
+                    const TextStyle(fontSize: 11, color: AppColors.inkFaint)),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _steps() {
-    final done = controller.preview != null;
-    final stage = controller.generating
-        ? (controller.generationProgress < 0.3 ? 0 : (controller.generationProgress < 0.8 ? 1 : 2))
-        : (done ? 3 : (controller.sourceBytes != null ? 0 : -1));
-    const labels = ['照片', '抠图', '性格', '领养'];
-    return Row(
-      children: List.generate(labels.length, (index) {
-        final active = index <= stage;
-        return Expanded(
-          child: Row(
-            children: [
-              Container(
-                width: 18,
-                height: 18,
-                decoration: BoxDecoration(
-                  color: active ? Theme.of(context).colorScheme.primary : AppColors.line,
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  active ? Icons.check_rounded : Icons.circle,
-                  size: active ? 11 : 6,
-                  color: active ? Colors.white : AppColors.inkSoft,
-                ),
-              ),
-              const SizedBox(width: 5),
-              Text(
-                labels[index],
-                style: TextStyle(
-                  fontSize: 10.5,
-                  color: active ? AppColors.ink : AppColors.inkSoft,
-                  fontWeight: active ? FontWeight.w700 : FontWeight.w400,
-                ),
-              ),
-              if (index != labels.length - 1) const Spacer(),
-            ],
-          ),
-        );
-      }),
-    );
-  }
-
-  Widget _forgeStatus() {
-    final online = controller.forgeOnline;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: online ? const Color(0xFFEAF7EF) : const Color(0xFFFFF4E6),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            online ? Icons.check_circle_rounded : Icons.info_outline_rounded,
-            size: 13,
-            color: online ? const Color(0xFF3D9A5F) : const Color(0xFFB57B2A),
-          ),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text(
-              online
-                  ? 'PetForge 已连接 · ${controller.settings.forgeUrl}'
-                  : '形象工坊未连接，将使用本地徽章模式（也能生成，但抠图更简单）',
-              style: TextStyle(
-                fontSize: 10.5,
-                height: 1.4,
-                color: online ? const Color(0xFF2F7A4B) : const Color(0xFF8A5D1E),
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -353,30 +406,41 @@ class CreateTabState extends State<CreateTab> {
     final accent = Theme.of(context).colorScheme.primary;
     final pack = result.pack;
     final name = pack['name']?.toString() ?? '新朋友';
-    final traits = ((pack['personality'] as Map?)?['traits'] as List?)?.map((e) => e.toString()).toList() ?? const <String>[];
+    final traits = ((pack['personality'] as Map?)?['traits'] as List?)
+            ?.map((e) => e.toString())
+            .toList() ??
+        const <String>[];
+    final greeting =
+        (pack['personality'] as Map?)?['greeting']?.toString() ?? '请多关照！';
     final image = result.images['base'];
 
     final artwork = Container(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [accent.withValues(alpha: 0.2), Colors.white.withValues(alpha: 0.5)],
+        gradient: const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFFFBF8F3), Color(0xFFF2ECE3)],
         ),
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.8)),
+        borderRadius: BorderRadius.circular(Radii.card),
+        border: Border.all(color: AppColors.line),
       ),
       child: Stack(
         children: [
-          Center(
-            child: image == null
-                ? const SizedBox()
-                : Image.memory(image, width: 260, height: 260, fit: BoxFit.contain),
+          Positioned.fill(
+            child: Padding(
+              padding: const EdgeInsets.all(Insets.x4),
+              child: image == null
+                  ? const SizedBox()
+                  : Image.memory(image, fit: BoxFit.contain),
+            ),
           ),
           const Positioned(
-            left: 12,
-            top: 12,
-            child: TagChip(label: '刚刚出生', color: Color(0xFF57B87A)),
+            left: Insets.x3,
+            top: Insets.x3,
+            child: TagChip(
+                label: '刚刚出生',
+                color: AppColors.success,
+                icon: Icons.favorite_rounded),
           ),
         ],
       ),
@@ -385,74 +449,80 @@ class CreateTabState extends State<CreateTab> {
     final details = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('它睁开眼睛了', style: TextStyle(fontSize: 12, color: AppColors.inkSoft)),
-        const SizedBox(height: 4),
-        Text(name, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800, letterSpacing: 1)),
-        const SizedBox(height: 10),
+        const Text('它睁开眼睛了',
+            style: TextStyle(fontSize: 12.5, color: AppColors.inkSoft)),
+        const SizedBox(height: 2),
+        Text(name, style: AppType.displayColor),
+        const SizedBox(height: Insets.x3),
         Wrap(
           spacing: 6,
           runSpacing: 6,
-          children: traits.map((trait) => TagChip(label: trait, color: accent)).toList(),
+          children: traits
+              .map((trait) => TagChip(label: trait, color: accent))
+              .toList(),
         ),
-        const SizedBox(height: 14),
+        const SizedBox(height: Insets.x3),
         Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.6), borderRadius: BorderRadius.circular(14)),
-          child: Text(
-            ((pack['personality'] as Map?)?['greeting']?.toString()) ?? '请多关照！',
-            style: const TextStyle(fontSize: 12, height: 1.55),
-          ),
+          width: double.infinity,
+          padding: const EdgeInsets.all(Insets.x3),
+          decoration: BoxDecoration(
+              color: AppColors.surfaceAlt,
+              borderRadius: BorderRadius.circular(Radii.control)),
+          child:
+              Text(greeting, style: const TextStyle(fontSize: 13, height: 1.6)),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: Insets.x2),
         Text(
-          '抠图方式：${(((pack['metrics'] as Map?)?['cutout']) ?? 'unknown')}'
-          ' · 耗时 ${result.elapsedMs}ms',
-          style: const TextStyle(fontSize: 10, color: AppColors.inkSoft),
+          '抠图方式：${(((pack['metrics'] as Map?)?['cutout']) ?? 'unknown')} · 耗时 ${result.elapsedMs}ms',
+          style: const TextStyle(fontSize: 11.5, color: AppColors.inkFaint),
         ),
         if (controller.generationNotice != null) ...[
-          const SizedBox(height: 8),
+          const SizedBox(height: Insets.x2),
           Text(
             controller.generationNotice!,
-            style: const TextStyle(fontSize: 10.5, height: 1.45, color: Color(0xFF9A6A1E)),
+            style: const TextStyle(
+                fontSize: 11.5, height: 1.5, color: AppColors.warning),
           ),
         ],
-        const SizedBox(height: 16),
+        const SizedBox(height: Insets.x4),
         Row(
           children: [
             Expanded(
               child: PillButton(
                 label: '收养它',
                 icon: Icons.favorite_rounded,
+                expand: true,
                 onPressed: () => controller.adoptPreview(name: _name.text),
               ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: Insets.x2),
             PillButton(
               label: '重新生成',
               filled: false,
-              dense: true,
               onPressed: controller.generating
                   ? null
                   : () => controller.generate(style: _style, name: _name.text),
             ),
           ],
         ),
-        const SizedBox(height: 4),
-        TextButton(
-          onPressed: controller.resetGeneration,
-          child: const Text('换一张照片', style: TextStyle(fontSize: 11.5, color: AppColors.inkSoft)),
+        const SizedBox(height: Insets.x2),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton(
+              onPressed: controller.resetGeneration,
+              child: const Text('换一张照片')),
         ),
       ],
     );
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        if (constraints.maxWidth < 620) {
+        if (constraints.maxWidth < 560) {
           return SingleChildScrollView(
             child: Column(
               children: [
-                SizedBox(height: 240, child: artwork),
-                const SizedBox(height: 14),
+                SizedBox(height: 220, child: artwork),
+                const SizedBox(height: Insets.x4),
                 details,
               ],
             ),
@@ -462,7 +532,7 @@ class CreateTabState extends State<CreateTab> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Expanded(flex: 5, child: artwork),
-            const SizedBox(width: 20),
+            const SizedBox(width: Insets.x5),
             Expanded(flex: 5, child: SingleChildScrollView(child: details)),
           ],
         );
@@ -471,7 +541,113 @@ class CreateTabState extends State<CreateTab> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// 设置
-// ---------------------------------------------------------------------------
+/// 照片选择区：悬停时虚线变 accent，给「这里可以点」的反馈。
+class _HoverDropZone extends StatefulWidget {
+  const _HoverDropZone({required this.child, this.onTap});
 
+  final Widget child;
+  final VoidCallback? onTap;
+
+  @override
+  State<_HoverDropZone> createState() => _HoverDropZoneState();
+}
+
+class _HoverDropZoneState extends State<_HoverDropZone> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: DashedBox(
+          color: _hover ? accent : const Color(0xFFD9CFC1),
+          background: _hover
+              ? tintOf(accent, 0.05)
+              : AppColors.surfaceAlt.withValues(alpha: 0.45),
+          child: widget.child,
+        ),
+      ),
+    );
+  }
+}
+
+/// 拍摄建议：照片生成的成败主要在照片本身，把三条硬要求直接写在表单里。
+class _Tips extends StatelessWidget {
+  const _Tips();
+
+  @override
+  Widget build(BuildContext context) {
+    const items = [
+      ('正脸对镜头', '五官清楚，抠图锚点才准'),
+      ('背景干净', '纯色墙面或桌面，边缘更好分离'),
+      ('光线均匀', '避免大背光与强阴影'),
+    ];
+    return Container(
+      padding:
+          const EdgeInsets.fromLTRB(Insets.x3, Insets.x2, Insets.x3, Insets.x3),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceAlt,
+        borderRadius: BorderRadius.circular(Radii.control),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Row(
+              children: [
+                const Icon(Icons.tips_and_updates_outlined,
+                    size: 14, color: AppColors.inkSoft),
+                const SizedBox(width: 6),
+                Text('拍摄建议',
+                    style: AppType.meta.copyWith(color: AppColors.inkSoft)),
+              ],
+            ),
+          ),
+          for (final item in items)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.only(top: 5),
+                    child: Icon(Icons.check_rounded,
+                        size: 12, color: AppColors.inkFaint),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text.rich(
+                      TextSpan(
+                        children: [
+                          TextSpan(
+                            text: '${item.$1}  ',
+                            style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.ink),
+                          ),
+                          TextSpan(
+                            text: item.$2,
+                            style: const TextStyle(
+                                fontSize: 12,
+                                height: 1.5,
+                                color: AppColors.inkSoft),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}

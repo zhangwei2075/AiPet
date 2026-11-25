@@ -350,5 +350,135 @@ void main() {
       expect((await store.load()).single.status, GoalStatus.failed);
       loop.dispose();
     });
+
+
+    test('刚启动的宽限期内不自驱（重启不等于该巡检）', () async {
+      final store = GoalStore(prefs: prefs);
+      final now = DateTime(2026, 11, 24, 10);
+      final loop = AutonomyLoop(
+        host: _FakeHost(),
+        registry: ToolRegistry(),
+        runtime: runtime,
+        store: store,
+        probe: ToolProbe(),
+        isEnabled: () => true,
+        settings: () => const AppSettings(),
+        onlineAvailable: () => true,
+        selfDriveStore: SelfDriveStore(prefs: prefs),
+        now: () => now,
+      );
+
+      await loop.tick();
+      expect(await store.load(), isEmpty, reason: '启动 6 分钟内不该自己找活');
+
+      loop.dispose();
+    });
+
+    test('自驱节流跨重启生效：盘上有 1 分钟前的记录就不再巡检', () async {
+      final store = GoalStore(prefs: prefs);
+      final selfDrive = SelfDriveStore(prefs: prefs);
+      final now = DateTime(2026, 11, 24, 10);
+      await selfDrive.save(SelfDriveState(
+        lastAt: now.subtract(const Duration(minutes: 1)),
+        cursor: 0,
+      ));
+
+      final loop = AutonomyLoop(
+        host: _FakeHost(),
+        registry: ToolRegistry(),
+        runtime: runtime,
+        store: store,
+        probe: ToolProbe(),
+        isEnabled: () => true,
+        settings: () => const AppSettings(),
+        onlineAvailable: () => true,
+        selfDriveStore: selfDrive,
+        startupGrace: Duration.zero,
+        now: () => now,
+      );
+
+      await loop.tick();
+      expect(await store.load(), isEmpty,
+          reason: '距上次巡检才 1 分钟，重启也不能把节流清零');
+
+      loop.dispose();
+    });
+
+    test('间隔已满则巡检，且游标从盘上恢复会轮到下一条', () async {
+      final store = GoalStore(prefs: prefs);
+      final selfDrive = SelfDriveStore(prefs: prefs);
+      final now = DateTime(2026, 11, 24, 10);
+      await selfDrive.save(SelfDriveState(
+        lastAt: now.subtract(const Duration(minutes: 31)),
+        cursor: 1,
+      ));
+
+      final loop = AutonomyLoop(
+        host: _FakeHost(),
+        registry: ToolRegistry(),
+        runtime: runtime,
+        store: store,
+        probe: ToolProbe(),
+        isEnabled: () => true,
+        settings: () => const AppSettings(),
+        onlineAvailable: () => true,
+        selfDriveStore: selfDrive,
+        startupGrace: Duration.zero,
+        now: () => now,
+      );
+
+      await loop.tick();
+      final goals = await store.load();
+      expect(goals, hasLength(1));
+      expect(goals.single.origin, 'self');
+      expect(goals.single.title, selfDriveGoals[1],
+          reason: '游标 1 → 第 2 条，顺序不能每次重启都从磁盘那条开始');
+      expect((await selfDrive.load()).cursor, 2);
+
+      loop.dispose();
+    });
+
+    test('自驱巡检顺利时保持安静，不弹气泡也不朗读', () async {
+      final runner = _FakeRunner();
+      final registry = ToolRegistry()
+        ..register(runtime.wrap(RunCommandTool(runner: runner)));
+      final store = GoalStore(prefs: prefs);
+      final host = _FakeHost();
+      final now = DateTime(2026, 11, 24, 10);
+      final loop = AutonomyLoop(
+        host: host,
+        registry: registry,
+        runtime: runtime,
+        store: store,
+        probe: ToolProbe(),
+        isEnabled: () => true,
+        settings: () => const AppSettings(),
+        onlineAvailable: () => false,
+        permissions: () => AgentPermissions.defaults
+            .copyWith(selfDriveIntervalMinutes: 0),
+        now: () => now,
+      );
+      await store.save([
+        Goal(
+          id: 'self-1',
+          title: selfDriveGoals.first,
+          origin: 'self',
+          status: GoalStatus.queued,
+          createdAt: now,
+          updatedAt: now,
+          maxSteps: 3,
+        ),
+      ]);
+
+      await loop.tick();
+      await loop.tick();
+
+      final goals = await store.load();
+      expect(goals.single.status, GoalStatus.done);
+      expect(host.bubbles, isEmpty, reason: '自己找的活做成了，别打扰主人');
+      expect(host.spoken, isEmpty);
+
+      loop.dispose();
+    });
   });
 }

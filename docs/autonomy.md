@@ -198,7 +198,22 @@ queued ──tick──▶ running ──PlanToolCall──▶ running（下一�
 
 队列空、在线可用、距上次超过 `selfDriveIntervalMinutes` 时，从 `selfDriveGoals` 轮一条
 **只读巡检**目标（磁盘剩余 / 高内存进程 / 工作区最近修改 / 系统启动时间），
-`maxSteps = 3`。自驱目标完成后才汇报，中途不刷屏；`selfDriveIntervalMinutes = 0` 可完全关闭。
+`maxSteps = 3`。`selfDriveIntervalMinutes = 0` 可完全关闭。
+
+三道闸门，防止「一重启它自己就去查磁盘」：
+
+| 闸门 | 参数 | 作用 |
+| --- | --- | --- |
+| 启动宽限 | `AutonomyLoop.startupGrace`（默认 6 分钟） | 刚起来的头几分钟不巡检。重启是主人的动作，不是「该找活干了」的信号 |
+| 节流落盘 | `SelfDriveStore` / `agent.selfdrive.v1` | 上次巡检时间跨重启保留。只在内存里的话，重启后 `_lastSelfDrive` 为 null，第一个心跳就会判定「该巡检了」 |
+| 游标落盘 | 同上（`cursor` 字段） | 四条巡检轮流跑到；只放内存则每次都从第 1 条开始，后三条永远轮不到 |
+
+汇报策略：自驱目标**顺利时完全静默**（不弹气泡、不朗读），只写记忆并更新
+`AgentActivity` 状态条（「顺手看了眼：一切正常」）；失败才开口——那可能说明环境真有问题。
+巡检文案统一写明「只读 / 不清理」，避免被误读成自动清理磁盘。
+
+> 注意：`Brain.start()` 末尾会立刻 `tick()` 一次（让重启后续跑未完成目标），
+> 所以上面的启动宽限是必需的，否则「续跑」和「自驱」会在同一时刻触发。
 
 ### 4.4 感知事件转目标
 
@@ -214,7 +229,7 @@ queued ──tick──▶ running ──PlanToolCall──▶ running（下一�
 | --- | --- | --- | --- |
 | 目标队列、重启续跑 | ✅ | ✅ | `GoalStore` / `agent.goals.v1` |
 | 多步 ReAct 规划 | ✅（仅 OpenAI 协议） | ✅ + 经验注入 | `ToolProbe.plan` |
-| 空闲自驱只读巡检 | ✅（仅在线） | ✅ | `selfDriveGoals` / `_maybeSelfDrive` |
+| 空闲自驱只读巡检 | ✅（仅在线，重启即触发） | ✅（仅在线，启动 6 分钟后才可能触发；节流与游标落盘） | `selfDriveGoals` / `_maybeSelfDrive` / `SelfDriveStore` |
 | 感知事件转目标 | ✅ | ✅ | `_listenPerceptionEvents` |
 | 步数 / 连败 / 超时熔断 | ✅ | ✅ | `AutonomyLoop._step` |
 | **通过对话执行工具** | ❌ | ✅ | `ChatAgent` + `parseOfflineAction` |

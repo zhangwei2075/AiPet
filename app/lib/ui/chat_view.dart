@@ -333,7 +333,7 @@ class _ChatViewState extends State<ChatView> {
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text('${pet?.name ?? '它'}记得的事'),
+        title: Text('${pet == null ? '它' : controller.displayName(pet!)}记得的事'),
         content: SizedBox(
           width: 340,
           child: Column(
@@ -371,10 +371,19 @@ class _ChatViewState extends State<ChatView> {
               ),
               if (memory.topics.isNotEmpty) ...[
                 const SizedBox(height: Insets.x3),
-                Text(
-                  '常聊：${memory.topics.keys.take(4).join('、')}',
-                  style: const TextStyle(
-                      fontSize: 12.5, color: AppColors.inkSoft, height: 1.5),
+                const Text('常聊的话题',
+                    style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.inkSoft)),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 5,
+                  runSpacing: 5,
+                  children: [
+                    for (final topic in memory.topics.keys.take(4))
+                      TagChip(label: topic, dense: true, color: accent),
+                  ],
                 ),
               ],
               if (memory.notes.isNotEmpty) ...[
@@ -382,16 +391,56 @@ class _ChatViewState extends State<ChatView> {
                 const Text('记下的事',
                     style:
                         TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700)),
-                const SizedBox(height: 4),
-                for (final note in memory.notes.reversed.take(5))
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 2),
-                    child: Text('· $note',
-                        style: const TextStyle(
-                            fontSize: 12,
-                            height: 1.5,
-                            color: AppColors.inkSoft)),
+                const SizedBox(height: 6),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(
+                      Insets.x3, Insets.x2, Insets.x3, Insets.x2),
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceAlt,
+                    borderRadius: BorderRadius.circular(Radii.xs),
                   ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      for (final note in memory.notes.reversed.take(5))
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 3),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.only(top: 6),
+                                child: Container(
+                                  width: 4,
+                                  height: 4,
+                                  decoration: BoxDecoration(
+                                    color: tintOf(accent, 0.55),
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(note,
+                                    style: const TextStyle(
+                                        fontSize: 12,
+                                        height: 1.5,
+                                        color: AppColors.ink)),
+                              ),
+                            ],
+                          ),
+                        ),
+                      if (memory.notes.length > 5)
+                        const Padding(
+                          padding: EdgeInsets.only(top: 4),
+                          child: Text('更早的记在「情景记忆」里',
+                              style: TextStyle(
+                                  fontSize: 10.5, color: AppColors.inkFaint)),
+                        ),
+                    ],
+                  ),
+                ),
               ],
             ],
           ),
@@ -490,7 +539,7 @@ class _ChatViewState extends State<ChatView> {
           Image(image: pet!.imageFor(PetMood.idle), width: 96, height: 96),
           const SizedBox(height: Insets.x3),
           Text(
-            '「${pet!.personality.catchphrase}」',
+            '「${controller.settings.personaOf(pet!).catchphrase}」',
             textAlign: TextAlign.center,
             style: const TextStyle(
                 fontSize: 13, height: 1.6, color: AppColors.inkSoft),

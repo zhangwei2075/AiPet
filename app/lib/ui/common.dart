@@ -170,6 +170,10 @@ class _PillButtonState extends State<PillButton> {
         _down = false;
       }),
       child: GestureDetector(
+        // onTap 必须显式挂上：只写 onTapDown/onTapUp 时手势竞技场不会把它
+        // 当成一次点击，按钮只有按下去的动效、永远不触发回调。
+        behavior: HitTestBehavior.opaque,
+        onTap: _active ? widget.onPressed : null,
         onTapDown: _active ? (_) => setState(() => _down = true) : null,
         onTapCancel: _active ? () => setState(() => _down = false) : null,
         onTapUp: _active ? (_) => setState(() => _down = false) : null,

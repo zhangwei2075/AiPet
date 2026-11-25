@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../models/pet.dart';
+import '../models/settings.dart';
 import '../services/petdex_importer.dart';
 import '../state/app_controller.dart';
 import 'common.dart';
+import 'persona_page.dart';
 import 'theme.dart';
 
 class GalleryTab extends StatelessWidget {
@@ -67,7 +69,9 @@ class GalleryTab extends StatelessWidget {
                     selected: pet.id == controller.active?.id,
                     memoryLine: _memoryLine(controller, pet),
                     nameLabel: controller.displayName(pet),
+                    traits: controller.settings.personaOf(pet).traits,
                     onRename: () => _showRenameDialog(context, controller, pet),
+                    onPersona: () => PersonaPage.open(context, controller, pet),
                     onUse: () async {
                       await controller.selectPet(pet);
                       await controller.closePanel();
@@ -276,6 +280,8 @@ class PetTile extends StatelessWidget {
     this.onUse,
     this.onRename,
     this.onDelete,
+    this.onPersona,
+    this.traits,
   });
 
   final Pet pet;
@@ -285,10 +291,14 @@ class PetTile extends StatelessWidget {
   final String? nameLabel;
   final VoidCallback? onRename;
   final VoidCallback? onDelete;
+  final VoidCallback? onPersona;
+
+  /// 生效的性格标签（设置里的人设优先）；为空时退回宠物包自带。
+  final List<String>? traits;
 
   @override
   Widget build(BuildContext context) {
-    final hasMenu = onRename != null || onDelete != null;
+    final hasMenu = onRename != null || onDelete != null || onPersona != null;
     return SoftTile(
       selected: selected,
       onTap: onUse,
@@ -385,7 +395,10 @@ class PetTile extends StatelessWidget {
                     right: Insets.x1,
                     bottom: Insets.x1,
                     child: _MenuButton(
-                        pet: pet, onRename: onRename, onDelete: onDelete),
+                        pet: pet,
+                        onRename: onRename,
+                        onDelete: onDelete,
+                        onPersona: onPersona),
                   ),
               ],
             ),
@@ -407,7 +420,7 @@ class PetTile extends StatelessWidget {
                 Wrap(
                   spacing: 4,
                   runSpacing: 4,
-                  children: pet.personality.traits
+                  children: (traits ?? pet.personality.traits)
                       .take(2)
                       .map((trait) =>
                           TagChip(label: trait, color: pet.accent, dense: true))
@@ -435,11 +448,13 @@ class PetTile extends StatelessWidget {
 /// 卡片右下角的「⋯」菜单：重命名 / 送走。
 /// 两个小图标常驻太吵，收进菜单后每张卡只需要一个入口。
 class _MenuButton extends StatelessWidget {
-  const _MenuButton({required this.pet, this.onRename, this.onDelete});
+  const _MenuButton(
+      {required this.pet, this.onRename, this.onDelete, this.onPersona});
 
   final Pet pet;
   final VoidCallback? onRename;
   final VoidCallback? onDelete;
+  final VoidCallback? onPersona;
 
   @override
   Widget build(BuildContext context) {
@@ -461,6 +476,7 @@ class _MenuButton extends StatelessWidget {
       ),
       onSelected: (value) {
         if (value == 'rename') onRename?.call();
+        if (value == 'persona') onPersona?.call();
         if (value == 'delete') onDelete?.call();
       },
       itemBuilder: (context) => [
@@ -472,6 +488,16 @@ class _MenuButton extends StatelessWidget {
               Icon(Icons.edit_rounded, size: 15),
               SizedBox(width: 8),
               Text('改个名字')
+            ]),
+          ),
+        if (onPersona != null)
+          const PopupMenuItem(
+            value: 'persona',
+            height: 38,
+            child: Row(children: [
+              Icon(Icons.theater_comedy_outlined, size: 15),
+              SizedBox(width: 8),
+              Text('编辑人设')
             ]),
           ),
         if (onDelete != null)

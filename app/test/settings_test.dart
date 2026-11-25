@@ -115,7 +115,10 @@ void main() {
         findPresetId(preset.apply(const AppSettings()).copyWith(model: 'glm-other')),
         customPresetId,
       );
-      expect(findPresetId(const AppSettings()), customPresetId);
+      // 默认设置的三件套（openai 协议 + 127.0.0.1:11434/v1 + qwen2.5:3b）
+      // 与 Ollama 预设置完全一致，所以反查命中的是 ollama 而不是「自定义」。
+      // 这条以前断言 customPresetId，是预设表改成「本机 Ollama」之后留下的旧期望。
+      expect(findPresetId(const AppSettings()), 'ollama');
     });
 
     test('工具能力标注与协议一致（探测目前只支持 OpenAI）', () {

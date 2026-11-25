@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../app_version.dart';
 import '../models/model_presets.dart';
+import '../models/pet.dart';
 import '../models/settings.dart';
 import '../services/chat/openai_backend.dart';
 import '../services/speech_service.dart';
@@ -12,6 +13,7 @@ import '../state/app_controller.dart';
 import 'common.dart';
 import 'feature_help.dart';
 import 'manage_page.dart';
+import 'persona_page.dart';
 import 'theme.dart';
 
 class SettingsTab extends StatefulWidget {
@@ -31,6 +33,7 @@ class SettingsTabState extends State<SettingsTab> {
   late final TextEditingController _updateUrl;
   final _scroll = ScrollController();
   final _appearanceKey = GlobalKey();
+  final _personaKey = GlobalKey();
   final _chatKey = GlobalKey();
   final _voiceKey = GlobalKey();
   final _forgeKey = GlobalKey();
@@ -171,6 +174,7 @@ class SettingsTabState extends State<SettingsTab> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _appearance(accent),
+                  _persona(accent),
                   _chat(accent),
                   _voice(),
                   _forge(),
@@ -196,6 +200,7 @@ class SettingsTabState extends State<SettingsTab> {
   Widget _sectionNav() {
     const items = <(String, IconData)>[
       ('外观', Icons.palette_outlined),
+      ('人设', Icons.theater_comedy_outlined),
       ('对话', Icons.forum_outlined),
       ('语音', Icons.graphic_eq_rounded),
       ('形象', Icons.face_retouching_natural_outlined),
@@ -204,6 +209,7 @@ class SettingsTabState extends State<SettingsTab> {
     ];
     final keys = [
       _appearanceKey,
+      _personaKey,
       _chatKey,
       _voiceKey,
       _forgeKey,
@@ -327,7 +333,12 @@ class SettingsTabState extends State<SettingsTab> {
         SettingRow(
           title: '自主执行',
           help:
-              '开启目标队列与多步规划循环：可自己拆解步骤、调用工具、复盘，空闲 30 分钟还会发起只读巡检；关掉后只执行你当场下达的单条指令。目标重启后续跑。',
+              '开启目标队列与多步规划循环：可自己拆解步骤、调用工具、复盘。\n'
+              '队列空着且距上次巡检满 30 分钟时，会自己发起一次只读巡检'
+              '（查磁盘剩余、看内存占用、列工作区改动等），只读不写、不删文件，'
+              '顺利时只在状态条留痕，不弹气泡打扰你。\n'
+              '刚启动的 6 分钟内不巡检，你的目标重启后会继续做完。\n'
+              '关掉后只执行你当场下达的单条指令。',
           divider: controller.isMobile,
           child: Switch(
             value: settings.autonomyEnabled,
@@ -350,6 +361,115 @@ class SettingsTabState extends State<SettingsTab> {
                   : null,
             ),
           ),
+      ],
+    );
+  }
+
+  /// 人设入口：这里只做概览 + 跳转，真正的编辑在整页的 [PersonaPage] 里。
+  /// 不放在设置里直接编辑，是因为人设字段多、还带性格标签，塞进这一屏会挤爆。
+  Widget _persona(Color accent) {
+    final pet = controller.active;
+    if (pet == null) {
+      return _section(
+        key: _personaKey,
+        title: '宠物人设',
+        description: '它怎么称呼你、怎么说话',
+        children: const [
+          Padding(
+            padding: EdgeInsets.symmetric(vertical: Insets.x2),
+            child: Text('还没有选中宠物，去「我的宠物」挑一只',
+                style: TextStyle(fontSize: 12, color: AppColors.inkFaint)),
+          ),
+        ],
+      );
+    }
+    final persona = settings.personaOf(pet);
+    final customized = controller.isPersonaCustomized(pet);
+    return _section(
+      key: _personaKey,
+      title: '宠物人设',
+      description: '它怎么称呼你、怎么说话',
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: Insets.x2, bottom: Insets.x1),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceAlt,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: AppColors.line),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: Image(
+                    image: pet.imageFor(PetMood.idle), fit: BoxFit.cover),
+              ),
+              const SizedBox(width: Insets.x3),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            controller.displayName(pet),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.w600,
+                                height: 1.3),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        TagChip(
+                          label: customized ? '自定义' : '默认',
+                          color: customized ? accent : null,
+                          dense: true,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      persona.traits.isEmpty
+                          ? persona.catchphrase
+                          : persona.traits.join(' · '),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 11.5, color: AppColors.inkSoft),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: Insets.x2),
+              PillButton(
+                label: '编辑人设',
+                icon: Icons.edit_rounded,
+                dense: true,
+                filled: false,
+                onPressed: () => PersonaPage.open(context, controller, pet),
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: Insets.x4),
+        Text(
+          persona.greeting,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+              fontSize: 12.5, height: 1.6, color: AppColors.inkSoft),
+        ),
+        const SizedBox(height: 2),
+        const Text(
+          '人设影响称呼、招呼语、口头禅和人格提示词，改完下一句话就生效。',
+          style: TextStyle(
+              fontSize: 11.5, height: 1.5, color: AppColors.inkFaint),
+        ),
       ],
     );
   }

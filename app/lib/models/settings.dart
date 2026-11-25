@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 
+import 'pet.dart';
+
 /// 对话后端：local = 内置小脑（离线），openai = 任意 OpenAI 兼容接口
 /// （OpenAI / DeepSeek / 通义 / Ollama / LM Studio 都可以）。
 enum ChatBackendKind { local, openai }
@@ -55,6 +57,7 @@ class AppSettings {
     this.autoCheckUpdates = true,
     this.petWindowPosition,
     this.petNames = const {},
+    this.petPersonas = const {},
   });
 
   final String? activePetId;
@@ -107,6 +110,9 @@ class AppSettings {
   /// 自定义宠物名字：petId -> 昵称（未设置时用宠物包里的名字）
   final Map<String, String> petNames;
 
+  /// 自定义人设：petId -> 人设（未设置时用宠物包自带的人格）
+  final Map<String, PetPersonality> petPersonas;
+
   AppSettings copyWith({
     String? activePetId,
     double? scale,
@@ -129,6 +135,7 @@ class AppSettings {
     bool? autoCheckUpdates,
     String? petWindowPosition,
     Map<String, String>? petNames,
+    Map<String, PetPersonality>? petPersonas,
   }) {
     return AppSettings(
       activePetId: activePetId ?? this.activePetId,
@@ -152,6 +159,7 @@ class AppSettings {
       autoCheckUpdates: autoCheckUpdates ?? this.autoCheckUpdates,
       petWindowPosition: petWindowPosition ?? this.petWindowPosition,
       petNames: petNames ?? this.petNames,
+      petPersonas: petPersonas ?? this.petPersonas,
     );
   }
 
@@ -177,6 +185,10 @@ class AppSettings {
         'autoCheckUpdates': autoCheckUpdates,
         'petWindowPosition': petWindowPosition,
         'petNames': petNames,
+        'petPersonas': {
+          for (final entry in petPersonas.entries)
+            entry.key: entry.value.toJson(),
+        },
         'scaleV': 2,
       };
 
@@ -193,6 +205,14 @@ class AppSettings {
       if (name.isNotEmpty) petNames[key.toString()] = name;
     });
     final position = json['petWindowPosition']?.toString();
+    final rawPersonas = (json['petPersonas'] as Map?) ?? const {};
+    final petPersonas = <String, PetPersonality>{};
+    rawPersonas.forEach((key, value) {
+      if (value is Map) {
+        petPersonas[key.toString()] =
+            PetPersonality.fromJson(value.cast<String, dynamic>());
+      }
+    });
     return AppSettings(
       activePetId: json['activePetId']?.toString(),
       scale: scale,
@@ -217,8 +237,19 @@ class AppSettings {
       autoCheckUpdates: _asBool(json['autoCheckUpdates'], true),
       petWindowPosition: (position == null || position.isEmpty) ? null : position,
       petNames: petNames,
+      petPersonas: petPersonas,
     );
   }
+}
+
+/// 人设查询：设置里自定义的优先，没有就用宠物包自带的。
+///
+/// 全站在需要「它是什么性格 / 怎么说话」的地方都走这里，保证改了人设后
+/// 聊天、打招呼、主动搭话、卡片标签用的是同一份数据。
+extension PetPersonaLookup on AppSettings {
+  PetPersonality personaOf(Pet pet) => petPersonas[pet.id] ?? pet.personality;
+
+  bool hasCustomPersona(String petId) => petPersonas.containsKey(petId);
 }
 
 double _asDouble(Object? value, double fallback) {

@@ -9,6 +9,10 @@ import 'theme.dart';
 
 /// 情景记忆管理页（M2）：按天查看 digest 与情景，单日清除 / 一键全清，
 /// 顶部带「记录新记忆」总开关。从聊天面板的记忆对话框进入。
+///
+/// 版式目标：一条情景能一眼看清「什么时候 / 什么类型 / 说了什么」，
+/// 所以固定「时间列 → 圆点 → 正文」三栏，不要弹性的行内拼接 ——
+/// 之前时间、类型、正文挤在一行，长短不一，整页看起来就是一团。
 class MemoryPage extends StatefulWidget {
   const MemoryPage({super.key, required this.controller});
 
@@ -44,7 +48,7 @@ class _MemoryPageState extends State<MemoryPage> {
             constraints: const BoxConstraints(maxWidth: 660),
             child: Column(
               children: [
-                _header(days.isNotEmpty),
+                _header(days),
                 Expanded(
                   child: service == null || pet == null
                       ? const EmptyHint(text: '当前没有激活的宠物')
@@ -89,7 +93,11 @@ class _MemoryPageState extends State<MemoryPage> {
     );
   }
 
-  Widget _header(bool hasDays) {
+  Widget _header(List<MemoryDayView> days) {
+    final total = days.fold<int>(0, (sum, day) => sum + day.events.length);
+    final summary = days.isEmpty
+        ? '按天归档的情景记忆'
+        : '按天归档 · ${days.length} 天 · $total 条';
     return Padding(
       padding:
           const EdgeInsets.fromLTRB(Insets.x3, Insets.x3, Insets.x3, Insets.x4),
@@ -100,18 +108,21 @@ class _MemoryPageState extends State<MemoryPage> {
               tooltip: '返回',
               onPressed: () => Navigator.of(context).pop()),
           const SizedBox(width: Insets.x2),
-          const Expanded(
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('它记得什么', style: AppType.titleColor),
-                SizedBox(height: 2),
-                Text('按天归档的情景记忆',
-                    style: TextStyle(fontSize: 11.5, color: AppColors.inkSoft)),
+                const Text('它记得什么', style: AppType.titleColor),
+                const SizedBox(height: 2),
+                Text(summary,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontSize: 11.5, color: AppColors.inkSoft)),
               ],
             ),
           ),
-          if (hasDays)
+          if (days.isNotEmpty)
             PillButton(
               label: '全部忘掉',
               dense: true,
@@ -124,10 +135,14 @@ class _MemoryPageState extends State<MemoryPage> {
     );
   }
 
+  /// 一天 = 一张卡：日期头 → 日结摘要 → 逐条情景（按时间正序）。
   Widget _dayCard(MemoryDayView day) {
-    final digest = day.digest;
-    final events = day.events;
+    final accent = Theme.of(context).colorScheme.primary;
+    final digest = day.digest?.trim() ?? '';
+    final events = List<EpisodicEvent>.of(day.events)
+      ..sort((a, b) => a.at.compareTo(b.at));
     final label = _dayLabel(day.day);
+    final isToday = label == '今天';
     return Padding(
       padding: const EdgeInsets.only(bottom: Insets.x3),
       child: AppCard(
@@ -137,24 +152,57 @@ class _MemoryPageState extends State<MemoryPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(label,
-                    style: const TextStyle(
-                        fontSize: 13.5, fontWeight: FontWeight.w700)),
-                const SizedBox(width: Insets.x2),
-                Text(
-                  '${events.length} 条',
-                  style: const TextStyle(
-                      fontSize: 11.5, color: AppColors.inkFaint),
-                ),
-                const Spacer(),
-                if (label != day.day)
-                  Padding(
-                    padding: const EdgeInsets.only(right: Insets.x2),
-                    child: Text(day.day,
-                        style: const TextStyle(
-                            fontSize: 11, color: AppColors.inkFaint)),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.baseline,
+                        textBaseline: TextBaseline.alphabetic,
+                        children: [
+                          Text(
+                            label,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              height: 1.3,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.ink,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            day.day,
+                            style: const TextStyle(
+                                fontSize: 11.5,
+                                height: 1.3,
+                                color: AppColors.inkFaint,
+                                letterSpacing: 0.2),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 3),
+                      Row(
+                        children: [
+                          TagChip(
+                            label: _weekdayLabel(day.day),
+                            dense: true,
+                            color: isToday ? accent : null,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            '${events.length} 条',
+                            style: const TextStyle(
+                                fontSize: 11,
+                                height: 1.3,
+                                color: AppColors.inkFaint),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
+                ),
                 RoundIconButton(
                   icon: Icons.delete_outline_rounded,
                   tooltip: '忘掉这一天',
@@ -163,58 +211,155 @@ class _MemoryPageState extends State<MemoryPage> {
                 ),
               ],
             ),
-            if (digest != null && digest.isNotEmpty) ...[
-              const SizedBox(height: Insets.x2),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                    horizontal: Insets.x3, vertical: Insets.x2),
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceAlt,
-                  borderRadius: BorderRadius.circular(Radii.xs),
-                ),
-                child: Text(
-                  digest,
-                  style: const TextStyle(
-                      fontSize: 12.5,
-                      height: 1.6,
-                      fontStyle: FontStyle.italic,
-                      color: AppColors.inkSoft),
-                ),
-              ),
+            if (digest.isNotEmpty) ...[
+              const SizedBox(height: Insets.x3),
+              _digestBlock(digest, accent),
             ],
-            const SizedBox(height: Insets.x3),
-            for (var i = 0; i < events.length; i++)
-              _eventRow(events[i], last: i == events.length - 1),
+            if (events.isEmpty)
+              const Padding(
+                padding: EdgeInsets.only(top: Insets.x3),
+                child: Text('这天只留下了小结，没有单独的情景。',
+                    style: TextStyle(fontSize: 11.5, color: AppColors.inkFaint)),
+              )
+            else ...[
+              const SizedBox(height: Insets.x3),
+              for (var i = 0; i < events.length; i++)
+                _eventRow(events[i], accent: accent, last: i == events.length - 1),
+            ],
           ],
         ),
       ),
     );
   }
 
-  /// 一条情景：圆点 + 文本。不做竖线连轨 —— 文本行高不固定，
-  /// 用 IntrinsicHeight 撑线既慢又容易在窄窗口里抖。
-  Widget _eventRow(EpisodicEvent event, {bool last = false}) {
-    final accent = Theme.of(context).colorScheme.primary;
+  /// 日结摘要：左侧一根 accent 竖条当引文标记，正文不用斜体 ——
+  /// 斜体中文在 12px 下笔画糊成一团，读起来比正文还累。
+  Widget _digestBlock(String digest, Color accent) {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: tintOf(accent, 0.06),
+        borderRadius: BorderRadius.circular(Radii.xs),
+      ),
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              width: 3,
+              decoration: BoxDecoration(
+                color: tintOf(accent, 0.55),
+                borderRadius: BorderRadius.circular(Radii.pill),
+              ),
+            ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(
+                    Insets.x3, Insets.x2, Insets.x3, Insets.x2),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.auto_awesome_rounded,
+                            size: 11, color: inkOn(accent)),
+                        const SizedBox(width: 4),
+                        Text(
+                          '一天小结',
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            height: 1.2,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.4,
+                            color: inkOn(accent),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      digest,
+                      style: const TextStyle(
+                          fontSize: 12.5,
+                          height: 1.7,
+                          color: AppColors.inkSoft),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 一条情景：固定时间列 + 圆点 + 正文。
+  /// importance ≥ 3 的强约定用实心 accent 圆点与更深的字色，扫一眼就能挑出来。
+  Widget _eventRow(EpisodicEvent event,
+      {required Color accent, bool last = false}) {
+    final strong = event.importance >= 3;
+    final meta = <String>[
+      if (event.kind != EpisodeKind.chat) _kindLabel(event.kind),
+      if ((event.tag ?? '').trim().isNotEmpty) '#${event.tag!.trim()}',
+    ];
     return Padding(
       padding: EdgeInsets.only(bottom: last ? 0 : Insets.x3),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          SizedBox(
+            width: 40,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                _timeLabel(event.at),
+                style: const TextStyle(
+                  fontSize: 10.5,
+                  height: 1.5,
+                  color: AppColors.inkFaint,
+                  letterSpacing: 0.2,
+                ),
+              ),
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.only(top: 6),
             child: Container(
-              width: 6,
-              height: 6,
+              width: strong ? 7 : 5,
+              height: strong ? 7 : 5,
               decoration: BoxDecoration(
-                  color: tintOf(accent, 0.6), shape: BoxShape.circle),
+                color: strong ? accent : tintOf(accent, 0.42),
+                shape: BoxShape.circle,
+              ),
             ),
           ),
-          const SizedBox(width: Insets.x3),
+          const SizedBox(width: Insets.x2 + 2),
           Expanded(
-            child: Text(
-              event.content,
-              style: const TextStyle(fontSize: 12.5, height: 1.55),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  event.content,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    height: 1.6,
+                    fontWeight: strong ? FontWeight.w600 : FontWeight.w400,
+                    color: strong ? AppColors.ink : AppColors.inkSoft,
+                  ),
+                ),
+                if (meta.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    meta.join(' · '),
+                    style: const TextStyle(
+                        fontSize: 10.5,
+                        height: 1.4,
+                        color: AppColors.inkFaint,
+                        letterSpacing: 0.2),
+                  ),
+                ],
+              ],
             ),
           ),
         ],
@@ -222,6 +367,18 @@ class _MemoryPageState extends State<MemoryPage> {
     );
   }
 
+  String _timeLabel(DateTime at) =>
+      '${at.hour.toString().padLeft(2, '0')}:'
+      '${at.minute.toString().padLeft(2, '0')}';
+
+  String _kindLabel(EpisodeKind kind) => switch (kind) {
+        EpisodeKind.chat => '聊到',
+        EpisodeKind.interaction => '互动',
+        EpisodeKind.task => '任务',
+        EpisodeKind.digest => '摘要',
+      };
+
+  /// 「今天 / 昨天 / 前天」，更早的直接显示日期。
   String _dayLabel(String day) {
     final today = DateTime.now();
     final parsed = DateTime.tryParse(day);
@@ -233,8 +390,15 @@ class _MemoryPageState extends State<MemoryPage> {
       0 => '今天',
       1 => '昨天',
       2 => '前天',
-      _ => day,
+      _ => '${parsed.month} 月 ${parsed.day} 日',
     };
+  }
+
+  String _weekdayLabel(String day) {
+    final parsed = DateTime.tryParse(day);
+    if (parsed == null) return '';
+    return const ['周一', '周二', '周三', '周四', '周五', '周六', '周日'][
+        parsed.weekday - 1];
   }
 
   Future<void> _clearDay(BuildContext context, String day) async {

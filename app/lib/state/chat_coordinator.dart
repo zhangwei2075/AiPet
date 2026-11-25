@@ -53,6 +53,7 @@ mixin ChatCoordinator on ChangeNotifier {
   bool get autonomyEnabled;
   MemoryService? get memoryService;
   SkillRegistry get skillRegistry;
+  String displayName(Pet pet);
   void emitBurst(PetBurst kind);
   void scheduleIdleReturn();
   void wake();
@@ -64,6 +65,13 @@ mixin ChatCoordinator on ChangeNotifier {
     final pet = active;
     if (text.isEmpty || pet == null || typing) return;
     wake();
+
+    // 说话用的「身份视图」：昵称 + 设置里的人设覆盖宠物包默认值。
+    // 下游（小脑 / 在线后端 / 提示词）拿到的都是这一份，改人设立刻生效。
+    final speaker = pet.withIdentity(
+      name: displayName(pet),
+      personality: settings.personaOf(pet),
+    );
 
     // 1) Brain 的确定性规则：提醒 / 宠物动作 / 剪贴板；离线时还承担
     //    本机操作路由与自主目标派发（见 brain.dart）。
@@ -116,10 +124,10 @@ mixin ChatCoordinator on ChangeNotifier {
     final preamble = buildAgentPreamble(
       permissions: permissions,
       tools: tools,
-      petName: pet.name,
+      petName: speaker.name,
     );
     final systemPrompt = buildAgentSystemPrompt(
-      personalityPrompt: pet.personality.systemPrompt,
+      personalityPrompt: speaker.personality.systemPrompt,
       tools: tools,
       permissions: permissions,
       memory: remembered,
@@ -129,7 +137,7 @@ mixin ChatCoordinator on ChangeNotifier {
         agentActivity.statusLine ?? '',
         '后台自主执行：${autonomyEnabled ? '开启' : '关闭'}',
       ].where((line) => line.isNotEmpty).join('\n'),
-      petName: pet.name,
+      petName: speaker.name,
     );
 
     // 2) 在线 + 全权限：聊天级 ReAct，模型点名工具 → ToolRuntime 真实执行
@@ -154,7 +162,7 @@ mixin ChatCoordinator on ChangeNotifier {
     // 3) 本地小脑：没有在线模型，只做陪伴式回答；本机操作已在第 1 步由
     //    Brain 的离线规则 / 自主循环接住。
     if (!online) {
-      _finishReply(chatService.local(text, pet, affection: affection), pet, text);
+      _finishReply(chatService.local(text, speaker, affection: affection), pet, text);
       return;
     }
 
@@ -164,7 +172,7 @@ mixin ChatCoordinator on ChangeNotifier {
     try {
       await for (final delta in chatService.sendStream(
         input: text,
-        pet: pet,
+        pet: speaker,
         history: history,
         settings: settings,
         affection: affection,
@@ -185,7 +193,7 @@ mixin ChatCoordinator on ChangeNotifier {
     } catch (error) {
       streamingText = null;
       _finishReply(
-        chatService.local(text, pet, affection: affection),
+        chatService.local(text, speaker, affection: affection),
         pet,
         text,
         degradedError: error.toString(),

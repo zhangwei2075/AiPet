@@ -20,7 +20,7 @@ class LocalBrain {
         '在的在的！我一直都在这里呀。',
         '嗨——今天过得怎么样？',
         '你终于来找我啦，我等了好久。',
-        '${pet.personality.traits.first}模式，启动！',
+        '${_trait(pet)}模式，启动！',
       ]));
     }
 
@@ -41,7 +41,7 @@ class LocalBrain {
 
     if (hit(['名字', '叫什么', '是谁', '自我介绍'])) {
       return PetReply(
-        '我叫${pet.name}。${pet.personality.traits.join('、')}，请多指教！',
+        '我叫${pet.name}。${_traitList(pet).join('、')}，请多指教！',
         PetMood.happy,
       );
     }
@@ -128,7 +128,8 @@ class LocalBrain {
       );
     }
 
-    final trait = pet.personality.traits[_random.nextInt(pet.personality.traits.length)];
+    final traits = _traitList(pet);
+    final trait = traits[_random.nextInt(traits.length)];
     return PetReply(
       _pick([
         '（歪头）「$text」…是什么意思呀？',
@@ -142,4 +143,13 @@ class LocalBrain {
   }
 
   String _pick(List<String> options) => options[_random.nextInt(options.length)];
+
+  /// 人设可能被用户清空性格标签（手改配置文件也会），这里兜一层默认值，
+  /// 避免 `traits.first` / `nextInt(0)` 在聊天时抛异常。
+  List<String> _traitList(Pet pet) {
+    final traits = pet.personality.traits;
+    return traits.isEmpty ? const ['安静'] : traits;
+  }
+
+  String _trait(Pet pet) => _traitList(pet).first;
 }

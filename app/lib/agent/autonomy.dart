@@ -178,12 +178,75 @@ class GoalStore {
 }
 
 /// 空闲自驱的只读巡检清单。刻意全部只读：自己找活干，绝不自己动主人的数据。
+///
+/// 第一条历史上写成「检查磁盘剩余空间」，被主人误读成「它在自动清理磁盘」，
+/// 所以文案里显式写明「只读 / 不清理」，别让人以为它在删东西。
 const List<String> selfDriveGoals = [
-  '检查这台电脑各磁盘的剩余空间，只有占用超过 90% 才需要提醒主人',
-  '列出当前占用内存最多的前 10 个进程，发现异常再提醒',
-  '查看工作区 D:/AiPet 最近一天修改过的文件，给一句话摘要',
-  '查看系统启动时间与当前登录用户，确认运行环境正常',
+  '只读查一下各磁盘还剩多少空间（不清理、不删文件），占用超过 90% 才提醒主人',
+  '只读列出当前占用内存最多的前 10 个进程，发现异常再提醒',
+  '只读查看工作区 D:/AiPet 最近一天修改过的文件，给一句话摘要',
+  '只读查看系统启动时间与当前登录用户，确认运行环境正常',
 ];
+
+/// 自驱节流状态：上次巡检时间 + 下一条该巡检哪一项。
+@immutable
+class SelfDriveState {
+  const SelfDriveState({this.lastAt, this.cursor = 0});
+
+  final DateTime? lastAt;
+  final int cursor;
+
+  SelfDriveState copyWith({DateTime? lastAt, int? cursor}) => SelfDriveState(
+        lastAt: lastAt ?? this.lastAt,
+        cursor: cursor ?? this.cursor,
+      );
+
+  Map<String, dynamic> toJson() => {
+        if (lastAt != null) 'lastAt': lastAt!.toIso8601String(),
+        'cursor': cursor,
+      };
+
+  factory SelfDriveState.fromJson(Map<String, dynamic> json) => SelfDriveState(
+        lastAt: DateTime.tryParse(json['lastAt']?.toString() ?? ''),
+        cursor: (json['cursor'] as num?)?.toInt() ?? 0,
+      );
+}
+
+/// 自驱节流落盘。
+///
+/// **必须持久化**：只放内存的话，每次启动 `_lastSelfDrive` 都是 null，
+/// 重启后第一个心跳就会判定「该巡检了」，表现成「一开机它自己跑去查磁盘」；
+/// 游标同样要从盘上恢复，否则每次都从第 1 条开始，后面几项永远轮不到。
+class SelfDriveStore {
+  SelfDriveStore({SharedPreferences? prefs, String key = prefsKey})
+      : _prefs = prefs,
+        _key = key;
+
+  static const String prefsKey = 'agent.selfdrive.v1';
+
+  SharedPreferences? _prefs;
+  final String _key;
+
+  Future<SharedPreferences> _instance() async =>
+      _prefs ??= await SharedPreferences.getInstance();
+
+  Future<SelfDriveState> load() async {
+    final prefs = await _instance();
+    final raw = prefs.getString(_key);
+    if (raw == null || raw.isEmpty) return const SelfDriveState();
+    try {
+      return SelfDriveState.fromJson(
+          (jsonDecode(raw) as Map).cast<String, dynamic>());
+    } catch (_) {
+      return const SelfDriveState();
+    }
+  }
+
+  Future<void> save(SelfDriveState state) async {
+    final prefs = await _instance();
+    await prefs.setString(_key, jsonEncode(state.toJson()));
+  }
+}
 
 /// 离线降级规划：没有在线模型时，把目标映射成一次工具调用。
 ///
@@ -234,6 +297,8 @@ class AutonomyLoop {
     MemoryService? memory,
     AgentActivity? activity,
     ExperienceBank? experience,
+    SelfDriveStore? selfDriveStore,
+    Duration startupGrace = const Duration(minutes: 6),
     DateTime Function()? now,
   })  : _host = host,
         _registry = registry,
@@ -247,7 +312,11 @@ class AutonomyLoop {
         _memory = memory,
         _activity = activity,
         _experience = experience,
-        _now = now ?? DateTime.now;
+        _selfDriveStore = selfDriveStore,
+        _startupGrace = startupGrace,
+        _now = now ?? DateTime.now {
+    _startedAt = _now();
+  }
 
   final BrainHost _host;
   final ToolRegistry _registry;
@@ -261,7 +330,13 @@ class AutonomyLoop {
   final MemoryService? _memory;
   final AgentActivity? _activity;
   final ExperienceBank? _experience;
+  final SelfDriveStore? _selfDriveStore;
+  final Duration _startupGrace;
   final DateTime Function() _now;
+
+  /// 本次启动的时刻。启动后的 [_startupGrace] 内不做自驱巡检——
+  /// 重启是主人的动作，不是「该自己找活干」的信号。
+  late final DateTime _startedAt;
 
   bool _busy = false;
   bool _disposed = false;
@@ -402,24 +477,38 @@ class AutonomyLoop {
 
   Goal _finish(Goal goal, GoalStatus status, String note) {
     final text = truncate(note.replaceAll(RegExp(r'\s+'), ' ').trim(), 300);
-    final line = status == GoalStatus.done
-        ? '搞定啦：${goal.title} — $text'
-        : '这件事没办成：${goal.title} — $text';
-    if (_host.agentPetMode) {
-      _host.agentBubble(line, mood: status == GoalStatus.done ? PetMood.happy : PetMood.talk);
+    final ok = status == GoalStatus.done;
+    // 自驱巡检是自己找的活：顺利就别打扰主人，只更新状态条与记忆。
+    // 失败才说——那可能意味着环境真有问题，值得让它开口。
+    final quiet = ok && goal.origin == 'self';
+    if (!quiet) {
+      final line = ok
+          ? '搞定啦：${goal.title} — $text'
+          : '这件事没办成：${goal.title} — $text';
+      if (_host.agentPetMode) {
+        _host.agentBubble(line, mood: ok ? PetMood.happy : PetMood.talk);
+      }
+      _host.agentSpeak(line);
     }
-    _host.agentSpeak(line);
     _memory?.recordTask(
       _host.agentPetId,
-      '目标「${goal.title}」${status == GoalStatus.done ? '完成' : '失败'}：$text',
+      '目标「${goal.title}」${ok ? '完成' : '失败'}：$text',
       tag: 'goal',
     );
-    _activity?.endGoal(ok: status == GoalStatus.done, summary: text);
+    _activity?.endGoal(ok: ok, summary: quiet ? '顺手看了眼：一切正常' : text);
     unawaited(_recordExperience(goal, status, text));
-    return goal.copyWith(
+    // 显式重建而不是 copyWith：copyWith 的 `lastError ?? this.lastError`
+    // 没法把上一次的失败原因清空，成功收尾时会留下过期错误。
+    return Goal(
+      id: goal.id,
+      title: goal.title,
+      origin: goal.origin,
       status: status,
+      createdAt: goal.createdAt,
       updatedAt: _now(),
-      lastError: status == GoalStatus.failed ? text : null,
+      steps: goal.steps,
+      lastError: ok ? null : text,
+      maxSteps: goal.maxSteps,
     );
   }
 
@@ -440,18 +529,28 @@ class AutonomyLoop {
   }
 
   /// 队列空了就自己找一件只读的事做，节流由 `selfDriveIntervalMinutes` 控制。
+  ///
+  /// 三道闸门，缺一条就会出现「一重启它就去查磁盘」：
+  /// 1. 启动宽限期：刚起来的头几分钟不巡检；
+  /// 2. 上次巡检时间从盘上读，重启不会把节流清零；
+  /// 3. 游标也从盘上读，四条巡检能轮流跑到，不会永远卡在第 1 条。
   Future<void> _maybeSelfDrive(List<Goal> goals) async {
     final permissions = _permissions();
     if (permissions.selfDriveIntervalMinutes <= 0 || !_onlineAvailable()) return;
     final now = _now();
-    final last = _lastSelfDrive;
+    if (now.isBefore(_startedAt.add(_startupGrace))) return;
+
+    final state = await _loadSelfDriveState();
+    final last = state.lastAt ?? _lastSelfDrive;
     if (last != null &&
-        now.difference(last) < Duration(minutes: permissions.selfDriveIntervalMinutes)) {
+        now.difference(last) <
+            Duration(minutes: permissions.selfDriveIntervalMinutes)) {
       return;
     }
     if (goals.any((g) => g.origin == 'self' && g.active)) return;
-    _lastSelfDrive = now;
-    final title = selfDriveGoals[_selfDriveCursor++ % selfDriveGoals.length];
+
+    final cursor = state.cursor;
+    final title = selfDriveGoals[cursor % selfDriveGoals.length];
     goals.add(Goal(
       id: 'goal-self-${now.microsecondsSinceEpoch}',
       title: title,
@@ -462,6 +561,27 @@ class AutonomyLoop {
       maxSteps: 3, // 自驱巡检刻意限制步数，别自己越跑越远
     ));
     await _store.save(_compact(goals));
+    _lastSelfDrive = now;
+    _selfDriveCursor = cursor + 1;
+    await _selfDriveStore?.save(
+      SelfDriveState(lastAt: now, cursor: _selfDriveCursor),
+    );
+  }
+
+  Future<SelfDriveState> _loadSelfDriveState() async {
+    final fallback = SelfDriveState(lastAt: _lastSelfDrive, cursor: _selfDriveCursor);
+    final store = _selfDriveStore;
+    if (store == null) return fallback;
+    try {
+      final state = await store.load();
+      // 盘上没记录但本进程已经自驱过，取两者里更晚的那个。
+      if (state.lastAt == null && _lastSelfDrive != null) {
+        return state.copyWith(lastAt: _lastSelfDrive, cursor: _selfDriveCursor);
+      }
+      return state;
+    } catch (_) {
+      return fallback;
+    }
   }
 
   String _historyOf(Goal goal) {

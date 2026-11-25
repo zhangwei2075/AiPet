@@ -436,7 +436,7 @@ mixin PetBehavior on ChangeNotifier {
   /// 按宠物性格给主动行为加权：贪吃→讨食，黏人→求摸，元气→小跑。
   ///  traits 来自 petpack，所以「有财」不用在代码里写死也能拿到专属倾向。
   ProactiveKind proactiveKindFor(Pet pet) {
-    final weights = proactiveWeights(pet.personality.traits);
+    final weights = proactiveWeights(settings.personaOf(pet).traits);
     final total = weights.values.fold(0, (sum, w) => sum + w);
     return proactiveKindAt(weights, random.nextInt(total));
   }
@@ -487,7 +487,8 @@ mixin PetBehavior on ChangeNotifier {
     wake();
     eating = true;
     awaitingTreat = true;
-    showBubble('${pet.personality.catchphrase} 有没有小零食？', mood: PetMood.love, duration: 5);
+    showBubble('${settings.personaOf(pet).catchphrase} 有没有小零食？',
+        mood: PetMood.love, duration: 5);
     emitBurst(PetBurst.note);
     notifyListeners();
     _eatTimer?.cancel();
@@ -549,7 +550,7 @@ mixin PetBehavior on ChangeNotifier {
 
   String proactiveLine(Pet pet) {
     return pick([
-      pet.personality.catchphrase,
+      settings.personaOf(pet).catchphrase,
       '${displayName(pet)}在呢，主人在忙吗？',
       '陪我待一会儿嘛～',
       '今天的天气很适合打盹。',

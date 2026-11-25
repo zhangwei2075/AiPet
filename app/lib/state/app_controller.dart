@@ -355,7 +355,8 @@ class AppController extends ChangeNotifier
   /// 朝向：1 = 朝右，-1 = 朝左（由最近一次走动方向决定，渲染时水平镜像帧）。
   @override
   int facing = 1;
-  PetPersonality? get personality => active?.personality;
+  PetPersonality? get personality =>
+      active == null ? null : settings.personaOf(active!);
 
   Future<void> initialize() async {
     settings = await store.loadSettings();
@@ -428,6 +429,9 @@ class AppController extends ChangeNotifier
       runtime: toolRuntime,
       store: GoalStore(),
       probe: ToolProbe(),
+      // 自驱节流必须落盘：否则每次重启 _lastSelfDrive 归零，
+      // 起来第一个心跳就去查磁盘，看着像「开机自动清理磁盘」。
+      selfDriveStore: SelfDriveStore(),
       isEnabled: () => autonomyEnabled,
       settings: () => settings,
       permissions: () => agentPermissions,
@@ -476,7 +480,8 @@ class AppController extends ChangeNotifier
     }
     Future<void>.delayed(const Duration(milliseconds: 900), () {
       if (active == null) return;
-      showBubble(active!.personality.greeting, mood: PetMood.happy, duration: 5);
+      showBubble(settings.personaOf(active!).greeting,
+          mood: PetMood.happy, duration: 5);
       emitBurst(PetBurst.stars);
     });
   }
@@ -599,7 +604,7 @@ class AppController extends ChangeNotifier
     await window.applyMode(WindowMode.chat, scale: settings.scale);
     if (messages.isEmpty && active != null) {
       messages = [
-        ChatMessage(role: ChatRole.pet, text: active!.personality.greeting, at: DateTime.now(), mood: PetMood.happy),
+        ChatMessage(role: ChatRole.pet, text: settings.personaOf(active!).greeting, at: DateTime.now(), mood: PetMood.happy),
       ];
     }
     bubble = null;
@@ -661,6 +666,25 @@ class AppController extends ChangeNotifier
     settings = settings.copyWith(petNames: names);
     await store.saveSettings(settings);
     notifyListeners();
+  }
+
+  /// 写入 / 清除自定义人设。传 null 表示恢复宠物包自带的默认人设。
+  Future<void> updatePersona(String petId, PetPersonality? persona) async {
+    final map = Map<String, PetPersonality>.from(settings.petPersonas);
+    if (persona == null) {
+      map.remove(petId);
+    } else {
+      map[petId] = persona;
+    }
+    settings = settings.copyWith(petPersonas: map);
+    await store.saveSettings(settings);
+    notifyListeners();
+  }
+
+  /// 某人设是否是「改过的」：与宠物包默认不同才算自定义。
+  bool isPersonaCustomized(Pet pet) {
+    final override = settings.petPersonas[pet.id];
+    return override != null && !override.sameAs(pet.personality);
   }
 
   bool _hidden = false;

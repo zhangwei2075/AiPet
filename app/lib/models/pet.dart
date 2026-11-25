@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 /// 宠物表情。照片生成的宠物通常只有 [idle] 一帧，
@@ -81,6 +82,30 @@ class PetPersonality {
         'catchphrase': catchphrase,
         'systemPrompt': systemPrompt,
       };
+
+  PetPersonality copyWith({
+    List<String>? traits,
+    String? tone,
+    String? greeting,
+    String? catchphrase,
+    String? systemPrompt,
+  }) {
+    return PetPersonality(
+      traits: traits ?? this.traits,
+      tone: tone ?? this.tone,
+      greeting: greeting ?? this.greeting,
+      catchphrase: catchphrase ?? this.catchphrase,
+      systemPrompt: systemPrompt ?? this.systemPrompt,
+    );
+  }
+
+  /// 与另一份人设是否完全一致（用于判断「有没有自定义」以及保存按钮是否可用）。
+  bool sameAs(PetPersonality other) =>
+      listEquals(traits, other.traits) &&
+      tone == other.tone &&
+      greeting == other.greeting &&
+      catchphrase == other.catchphrase &&
+      systemPrompt == other.systemPrompt;
 }
 
 @immutable
@@ -216,6 +241,28 @@ class Pet {
   }
 
   bool get supportsBlink => frames.containsKey(PetMood.blink);
+
+  /// 派生一份「换了名字 / 人设」的视图，其余字段（图片、锚点、目录）原样带过。
+  ///
+  /// 人设覆盖存在设置里而不是回写宠物包：内置宠物是只读 asset，
+  /// 而且这样「恢复默认」只要删掉覆盖项，不用备份原文件。
+  Pet withIdentity({String? name, PetPersonality? personality}) {
+    return Pet(
+      id: id,
+      name: name ?? this.name,
+      personality: personality ?? this.personality,
+      palette: palette,
+      accent: accent,
+      anchors: anchors,
+      frames: frames,
+      animations: animations,
+      builtin: builtin,
+      heightRatio: heightRatio,
+      cutout: cutout,
+      directory: directory,
+      assetRoot: assetRoot,
+    );
+  }
 
   Map<String, dynamic> toPack() => {
         'schemaVersion': 1,

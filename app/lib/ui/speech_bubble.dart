@@ -12,6 +12,10 @@ class SpeechBubble extends StatelessWidget {
     this.onTap,
     this.onClose,
     this.maxWidth = 320,
+    this.maxLines = 5,
+    this.status,
+    this.statusBusy = false,
+    this.statusOk = true,
   });
 
   final String text;
@@ -19,6 +23,12 @@ class SpeechBubble extends StatelessWidget {
   final VoidCallback? onTap;
   final VoidCallback? onClose;
   final double maxWidth;
+  final int maxLines;
+
+  /// 当前正在执行的任务状态（由 AgentActivity 提供），null 时不占版面。
+  final String? status;
+  final bool statusBusy;
+  final bool statusOk;
 
   @override
   Widget build(BuildContext context) {
@@ -56,30 +66,45 @@ class SpeechBubble extends StatelessWidget {
                   ),
                 ],
               ),
-              child: Row(
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Expanded(
-                    child: Text(
-                      text,
-                      maxLines: 5,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 13, height: 1.5, color: AppColors.ink),
-                    ),
-                  ),
-                  if (onClose != null)
-                    Padding(
-                      padding: const EdgeInsets.only(left: 6),
-                      child: InkWell(
-                        onTap: onClose,
-                        borderRadius: BorderRadius.circular(20),
-                        child: const Padding(
-                          padding: EdgeInsets.all(3),
-                          child: Icon(Icons.close_rounded, size: 14, color: AppColors.inkSoft),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          text,
+                          maxLines: maxLines,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 13, height: 1.5, color: AppColors.ink),
                         ),
                       ),
+                      if (onClose != null)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 6),
+                          child: InkWell(
+                            onTap: onClose,
+                            borderRadius: BorderRadius.circular(20),
+                            child: const Padding(
+                              padding: EdgeInsets.all(3),
+                              child: Icon(Icons.close_rounded, size: 14, color: AppColors.inkSoft),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  if (status != null) ...[
+                    const SizedBox(height: 7),
+                    TaskStatusChip(
+                      status: status!,
+                      accent: accent,
+                      busy: statusBusy,
+                      ok: statusOk,
                     ),
+                  ],
                 ],
               ),
             ),
@@ -121,12 +146,22 @@ class _TailPainter extends CustomPainter {
   bool shouldRepaint(covariant _TailPainter oldDelegate) => oldDelegate.color != color;
 }
 
-/// 宠物没有气泡时，露出一句轻提示。
+/// 宠物没有气泡时，露出一句轻提示；有任务在跑时同时挂一条状态。
 class BubbleHint extends StatelessWidget {
-  const BubbleHint({super.key, required this.text, required this.accent});
+  const BubbleHint({
+    super.key,
+    required this.text,
+    required this.accent,
+    this.status,
+    this.statusBusy = false,
+    this.statusOk = true,
+  });
 
   final String text;
   final Color accent;
+  final String? status;
+  final bool statusBusy;
+  final bool statusOk;
 
   @override
   Widget build(BuildContext context) {
@@ -135,18 +170,90 @@ class BubbleHint extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.72),
-          borderRadius: BorderRadius.circular(999),
+          color: Colors.white.withValues(alpha: 0.82),
+          borderRadius: BorderRadius.circular(status == null ? 999 : 14),
           border: Border.all(color: accent.withValues(alpha: 0.22)),
         ),
-        child: Row(
+        child: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(Icons.auto_awesome_rounded, size: 12, color: accent),
-            const SizedBox(width: 6),
-            Text(text, style: const TextStyle(fontSize: 11.5, color: AppColors.inkSoft)),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.auto_awesome_rounded, size: 12, color: accent),
+                const SizedBox(width: 6),
+                Text(text, style: const TextStyle(fontSize: 11.5, color: AppColors.inkSoft)),
+              ],
+            ),
+            if (status != null) ...[
+              const SizedBox(height: 6),
+              TaskStatusChip(
+                status: status!,
+                accent: accent,
+                busy: statusBusy,
+                ok: statusOk,
+              ),
+            ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// 一行任务状态：气泡内与聊天窗口共用，避免两处各画一套。
+class TaskStatusChip extends StatelessWidget {
+  const TaskStatusChip({
+    super.key,
+    required this.status,
+    required this.accent,
+    this.busy = false,
+    this.ok = true,
+    this.maxWidth = 280,
+  });
+
+  final String status;
+  final Color accent;
+  final bool busy;
+  final bool ok;
+  final double maxWidth;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = busy
+        ? const Color(0xFFD98B2B)
+        : (ok ? const Color(0xFF3E9B68) : const Color(0xFFC45B4A));
+    return Container(
+      constraints: BoxConstraints(maxWidth: maxWidth),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(9),
+        border: Border.all(color: color.withValues(alpha: 0.28)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (busy)
+            SizedBox(
+              width: 10,
+              height: 10,
+              child: CircularProgressIndicator(strokeWidth: 1.6, color: color),
+            )
+          else
+            Icon(ok ? Icons.check_circle_rounded : Icons.error_outline_rounded,
+                size: 11, color: color),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              status,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 10.5, height: 1.35, color: color),
+            ),
+          ),
+        ],
       ),
     );
   }

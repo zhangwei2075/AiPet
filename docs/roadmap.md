@@ -79,7 +79,7 @@ APK 已出包（JDK 17 + Android SDK 36，`flutter build apk --release` →
 - 记忆是「摘要级」的，没有用小模型做周期性压缩；话题提取只是关键词正则，够用但不聪明。
 - 语音没有做「气泡还在、语音已结束」的对齐，也没有连续消息打断；长句不按标点切段。
 - 主动行为已落地：按性格搭话 / 讨食 / 求摸 / 小跑，每 3~6 分钟一次，设置页「主动互动」可关；
-  「宠物之间互动」「定时提醒」仍未做。
+  「宠物之间互动」仍未做；「定时提醒」已由智能体 M1 覆盖（对它说「提醒我…」）。
 
 ## 4. 工程质量
 
@@ -103,6 +103,14 @@ APK 已出包（JDK 17 + Android SDK 36，`flutter build apk --release` →
   AI 生成帧序列，标准动作：待机/工作/开心/失败/左右跑），对齐其动作集：新增开心跳（hop 4 帧）
   与委屈落地（drop 1~2 帧）逐帧动画（内置生成器程序化绘制，有财图生图生成），点击/松手落地
   自动播对应帧；`facing` 朝向 + 水平镜像实现「向左跑 / 向右跑」。
+- 设置页分组 + 模型方案配置（2026-11-24）：设置按「外观与行为 / AI 模型 / 语音 / 形象工坊 /
+  更新 / 数据」分组；对话后端支持 OpenAI 兼容（/chat/completions）与 Anthropic 兼容
+  （/messages）双协议，共用一套配置；新增「测试连接」验证配置。模型接入为手动填写
+  接口协议 / API 地址 / 模型名 / API Key；同日曾实现分组预设按钮与自定义厂商管理，
+  随后按用户要求整块移除（含预置套餐配置）。
+
+  构建环境需 Windows 开发者模式（符号链接），
+  已通过注册表 `AppModelUnlock\AllowDevelopmentWithoutDevLicense=1` 开启。
 
 ## 5. 剩余阻塞项（需要外部条件）
 
@@ -112,7 +120,40 @@ APK 已出包（JDK 17 + Android SDK 36，`flutter build apk --release` →
 - **ComfyUI checkpoint**：本机已装 ComfyUI Desktop，但 `models/checkpoints` 为空；
   默认程序化动画不依赖它，只有想用 AI 图生图补帧时才需要下载模型（SD1.5 约 2GB / SDXL 约 6.5GB）。
 
-## 6. 本轮完善记录（2026-11-04）
+## 6. 智能体架构演进：Super-agent 化（2026-11-12 设计，2026-11-24 M5 修订）
+
+参考 DeepSeek Super-agent（Router/Worker 双层、事件驱动、存算分离、Watchdog、异步 ReAct）
+与 DSH「一切皆插件」理念，把宠物从「会聊天的桌宠」升级为「会做事的桌面助理智能体」，
+M5 再升级为「本机全权限、可自主执行」。
+完整设计见 [super-agent-refactor.md](super-agent-refactor.md)，
+M5 规格见 [autonomy.md](autonomy.md)，分期：
+
+- **M1 最小闭环 ✅（2026-11-12 实施）**：事件总线 + Brain(Router)/TaskSession(Worker) + 任务持久化（重启恢复）
+  + 内置工具 reminder / clipboard / pet_control，在线模型 function calling 与离线规则映射双通道。
+  覆盖本文件此前标记未做的「定时提醒」；新增 33 个用例（全量 136 全绿）。
+- **M2 记忆升级 ✅（2026-11-12 实施）**：情景记忆（事件日志按天分区 + 检索 + 日结摘要），
+  计数记忆收编进组装层；记忆管理页（查看/单日清/全清/总开关）。详见 m2-memory-plan.md。
+- **M3 感知与自治 ✅（2026-11-24）**：剪贴板 / 前台应用 Trigger、Watchdog 巡视与补偿、
+  慢工具转后台的异步 ReAct。M5 起感知默认开启（此前默认关闭），
+  `QuietHours` 默认全天允许 / 240 次防抖 / 10 秒冷却。
+- **M4 插件化与预判 ✅（2026-11-24）**：brainpack.json 开关表、时段与临近日程的投机草稿。
+  M5 之后 brainpack 不再是能力上限，授权改由 `AgentPermissions` 管；草稿上限 3 → 12。
+- **M5 本机全权限与自主执行 ✅（2026-11-24）**：13 个本机工具
+  （命令 / 进程 / 启动 / HTTP / 文件读写列搜删 / 剪贴板写 / 窗口 / 键鼠 / 截屏）、
+  `ToolRuntime` 统一授权与审计、`GenericToolIntent` 通用执行通道、
+  `AutonomyLoop` 目标队列 + 多步 ReAct + 空闲自驱只读巡检、感知事件转目标、
+  设置页与管理页「权限」总控台。默认 12 项能力全开、可一键暂停 / 一键回收。
+- **M5.1 对话可执行与学习沉淀 ✅（2026-11-24）**：修复「通过对话不能操作电脑」的三条链路缺口
+  （默认本地小脑 / 在线聊天不带 tools / 系统提示词是宠物人格）。新增 `ChatAgent` 聊天级
+  多轮 function calling、高权限系统提示词、离线本机操作规则、气泡与聊天窗口的任务状态条、
+  气泡紧贴宠物图片上方，以及 `ExperienceBank` 目标级经验复盘与回灌。
+  自主与学习闭环的逐项审查见 `docs/autonomy.md` §4.5。
+  规格与验收见 [autonomy.md](autonomy.md)。
+
+原则：PetBehavior 不重写、逐个定时器收编为 Trigger；每期保持 `flutter analyze` 零问题。
+（`flutter test` 在本机仍受 Windows SDK 头文件与命令黑名单限制，需在本地环境手动跑。）
+
+## 7. 本轮完善记录（2026-11-04）
 
 ### 架构拆分
 

@@ -27,6 +27,7 @@ class ChatService {
     required AppSettings settings,
     int affection = 0,
     String memory = '',
+    String systemPreamble = '',
   }) async {
     if (settings.chatBackend == ChatBackendKind.openai) {
       try {
@@ -36,6 +37,7 @@ class ChatService {
           history: history,
           settings: settings,
           memory: memory,
+          systemPreamble: systemPreamble,
         );
         return ChatResult(reply: reply);
       } catch (error) {
@@ -57,6 +59,7 @@ class ChatService {
     required AppSettings settings,
     int affection = 0,
     String memory = '',
+    String systemPreamble = '',
   }) async* {
     if (settings.chatBackend != ChatBackendKind.openai) {
       yield _brain.reply(input, pet, affection: affection).text;
@@ -68,6 +71,7 @@ class ChatService {
       history: history,
       settings: settings,
       memory: memory,
+      systemPreamble: systemPreamble,
     );
   }
 

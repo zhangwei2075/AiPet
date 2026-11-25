@@ -3,6 +3,28 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 
+import '../agent/activity.dart';
+import '../agent/autonomy.dart';
+import '../agent/brain.dart';
+import '../agent/brain_host.dart';
+import '../agent/brainpack.dart';
+import '../agent/chat_agent.dart';
+import '../agent/experience.dart';
+import '../agent/mcp/mcp_client.dart';
+import '../agent/mcp/mcp_server.dart';
+import '../agent/memory/episodic_store.dart';
+import '../agent/memory/memory_service.dart';
+import '../agent/permissions.dart';
+import '../agent/skill.dart';
+import '../agent/skill_store.dart';
+import '../agent/speculative.dart';
+import '../agent/task_store.dart';
+import '../agent/tool_probe.dart';
+import '../agent/tool_runtime.dart';
+import '../agent/triggers/app_focus_trigger.dart';
+import '../agent/triggers/clipboard_trigger.dart';
+import '../agent/triggers/quiet_hours.dart';
+import '../agent/watchdog.dart';
 import '../core/app_mode.dart';
 import '../data/memory_store.dart';
 import '../data/pet_repository.dart';
@@ -29,7 +51,8 @@ export 'controller_types.dart';
 
 /// 应用状态中枢：宠物、心情、聊天、窗口形态都收在这里。
 class AppController extends ChangeNotifier
-    with PetBehavior, ChatCoordinator, GenerationCoordinator, UpdateCoordinator {
+    with PetBehavior, ChatCoordinator, GenerationCoordinator, UpdateCoordinator
+    implements BrainHost {
   AppController({
     PetRepository? repository,
     SettingsStore? store,
@@ -52,7 +75,10 @@ class AppController extends ChangeNotifier
         badge = badgeFactory ?? BadgePetFactory(),
         speech = speech ?? SpeechService(),
         updates = updateService ?? UpdateService(),
-        random = random ?? math.Random();
+        random = random ?? math.Random() {
+    // 状态变化让监听 controller 的界面（聊天窗口等）也一起刷新。
+    agentActivity.addListener(notifyListeners);
+  }
 
   @override
   final PetRepository repo;
@@ -64,6 +90,156 @@ class AppController extends ChangeNotifier
   final MemoryStore memory;
   @override
   final ChatService chatService;
+
+  /// 智能体大脑（M1：提醒/剪贴板/自我动作）。随 init 创建，dispose 销毁。
+  @override
+  PetBrain? brain;
+
+  /// 情景记忆服务（M2）。
+  @override
+  MemoryService? memoryService;
+
+  /// M3 自治组件：看门狗 / 环境感知 / 投机执行。
+  Watchdog? watchdog;
+  ClipboardTrigger? clipboardTrigger;
+  AppFocusTrigger? appFocusTrigger;
+  SpeculativeEngine? speculative;
+
+  /// M4 能力清单：配置化的工具/Trigger 开关（M5 起缺省即启用）。
+  BrainPack brainPack = BrainPack.defaults;
+
+  /// M5 全权限运行时：能力授予 / 一键急停 / 不可逆命令黑名单 / 审计留痕。
+  AgentPermissions agentPermissions = AgentPermissions.defaults;
+  final PermissionStore _permissionStore = PermissionStore();
+
+  /// 「此刻在干什么」：气泡 / 聊天窗口的状态条直接监听它，工具调用即时刷新。
+  @override
+  final AgentActivity agentActivity = AgentActivity();
+
+  @override
+  late final ToolRuntime toolRuntime = ToolRuntime(activity: agentActivity);
+
+  /// 目标级复盘（学习沉淀）：聊天与自主规划都会召回同类经验。
+  @override
+  final ExperienceBank experienceBank = ExperienceBank();
+
+  /// 聊天级 function calling 执行器，在 initialize 里用 Brain 的注册表装配。
+  @override
+  ChatAgent? chatAgent;
+
+  /// M5 自主循环：目标队列 + 多步规划 + 后台执行。随 initialize 创建。
+  AutonomyLoop? autonomy;
+
+  /// 技能注册表：提示词模板，按用户请求注入 system prompt。
+  @override
+  final SkillRegistry skillRegistry = SkillRegistry(builtInSkills);
+  final SkillStore _skillStore = SkillStore();
+
+  /// MCP 服务器清单与工具目录。连接是显式动作，不在启动时自动发起网络请求。
+  final McpStore _mcpStore = McpStore();
+  final McpClient mcpClient = McpClient();
+  List<McpServer> mcpServers = const [];
+  Map<String, List<McpTool>> mcpTools = const {};
+  String? mcpError;
+
+  /// 感知类 Trigger 开关。M5 默认开启，急停时一并停摆。
+  bool get perceptionEnabled => settings.perceptionEnabled && !agentPermissions.paused;
+
+  /// 自主执行开关：设置打开且没有急停。
+  @override
+  bool get autonomyEnabled => settings.autonomyEnabled && !agentPermissions.paused;
+
+  /// 是否处于「全部能力都已授予」状态（权限页总开关）。
+  bool get fullAccess => agentPermissions.isFullAccess && !agentPermissions.paused;
+
+  /// 权限热改：立即作用于 ToolRuntime，不需要重建 Brain / 重新注册工具。
+  Future<void> applyPermissions(AgentPermissions next) async {
+    agentPermissions = next;
+    toolRuntime.applyPermissions(next);
+    await _permissionStore.save(next);
+    notifyListeners();
+  }
+
+  Future<void> setCapabilityEnabled(AgentCapability cap, bool value) =>
+      applyPermissions(agentPermissions.withCapability(cap, value));
+
+  Future<void> setFullAccess(bool value) =>
+      applyPermissions(agentPermissions.withAll(value));
+
+  Future<void> setPaused(bool value) =>
+      applyPermissions(agentPermissions.copyWith(paused: value));
+
+  Future<void> setAutonomyEnabled(bool value) =>
+      updateSettings(settings.copyWith(autonomyEnabled: value));
+
+  Future<void> setPerceptionEnabled(bool value) =>
+      updateSettings(settings.copyWith(perceptionEnabled: value));
+
+  Future<void> clearAudit() async {
+    await toolRuntime.audit.clear();
+    notifyListeners();
+  }
+
+  /// 清掉沉淀的经验（不影响情景记忆与审计）。
+  Future<void> clearExperience() async {
+    await experienceBank.clear();
+    notifyListeners();
+  }
+
+  /// 管理页直接给智能体派一个目标（后台多步执行）。
+  Future<String> submitAgentGoal(String title) async {
+    final activeBrain = brain;
+    if (activeBrain == null) return '智能体还没准备好，稍等一下。';
+    return activeBrain.submitGoal(title);
+  }
+
+  Future<void> setSkillEnabled(String id, bool value) async {
+    skillRegistry.setEnabled(id, value);
+    await _skillStore.save({for (final s in skillRegistry.all) s.id: s.enabled});
+    notifyListeners();
+  }
+
+  // ------------------------------------------------------------------ MCP
+
+  Future<void> saveMcpServer(McpServer server) async {
+    final list = List<McpServer>.of(mcpServers);
+    final index = list.indexWhere((s) => s.id == server.id);
+    if (index >= 0) {
+      list[index] = server;
+    } else {
+      list.add(server);
+    }
+    mcpServers = list;
+    await _mcpStore.save(list);
+    notifyListeners();
+  }
+
+  Future<void> removeMcpServer(String id) async {
+    mcpServers = mcpServers.where((s) => s.id != id).toList();
+    mcpTools = Map.of(mcpTools)..remove(id);
+    await _mcpStore.save(mcpServers);
+    notifyListeners();
+  }
+
+  Future<void> connectMcpServer(String id) async {
+    final server = mcpServers.firstWhere((s) => s.id == id);
+    mcpError = null;
+    notifyListeners();
+    try {
+      final tools = await mcpClient.connect(server);
+      mcpTools = Map.of(mcpTools)..[id] = tools;
+      // 接入 Brain 注册表：远程工具走异步后台执行（McpTool.slow=true），
+      // 且同样经 ToolRuntime 包装，受 mcp 能力开关与审计约束（M5）。
+      for (final tool in tools) {
+        // 远程工具不得覆盖内置工具（防诱导同名劫持提醒/剪贴板）。
+        if (BrainPack.builtInTools.contains(tool.name)) continue;
+        brain?.registry.register(toolRuntime.wrap(tool));
+      }
+    } catch (error) {
+      mcpError = error.toString();
+    }
+    notifyListeners();
+  }
   @override
   final PetForgeClient forge;
   @override
@@ -124,6 +300,14 @@ class AppController extends ChangeNotifier
   bool eating = false;
   @override
   bool awaitingTreat = false;
+
+  /// 开心摇尾巴（互动后的余韵，几秒后自动停）。
+  @override
+  bool wagging = false;
+
+  /// 原地嗅探（漫步途中的好奇时刻）。
+  @override
+  bool sniffing = false;
   @override
   PetAction action = PetAction.none;
   @override
@@ -175,6 +359,10 @@ class AppController extends ChangeNotifier
 
   Future<void> initialize() async {
     settings = await store.loadSettings();
+    // M5：权限独立落盘，先恢复再装配工具，保证启动瞬间规则就生效。
+    agentPermissions = await _permissionStore.load();
+    toolRuntime.applyPermissions(agentPermissions);
+    unawaited(speech.setVoice(settings.voice)); // 未初始化时只记下声线，_ensure 时生效
     currentVersion = await updates.currentVersion();
     await memory.load();
     pets = await repo.loadAll();
@@ -218,6 +406,70 @@ class AppController extends ChangeNotifier
     notifyListeners();
 
     startIdleTimers();
+    memoryService = MemoryService(store: EpisodicStore());
+    unawaited(memoryService!.load());
+    brain = PetBrain(
+      host: this,
+      store: TaskStore(),
+      probe: ToolProbe(),
+      memoryService: memoryService,
+      runtime: toolRuntime,
+    );
+    chatAgent = ChatAgent(
+      registry: brain!.registry,
+      runtime: toolRuntime,
+      activity: agentActivity,
+      experience: experienceBank,
+    );
+    // 先有 Brain（工具已注册）→ 再用它的注册表建自主循环 → 挂回 Brain。
+    autonomy = AutonomyLoop(
+      host: this,
+      registry: brain!.registry,
+      runtime: toolRuntime,
+      store: GoalStore(),
+      probe: ToolProbe(),
+      isEnabled: () => autonomyEnabled,
+      settings: () => settings,
+      permissions: () => agentPermissions,
+      memory: memoryService,
+      activity: agentActivity,
+      experience: experienceBank,
+    );
+    brain!.attachLoop(autonomy!);
+    unawaited(brain!.start());
+
+    // M3 自治：Watchdog 巡视 + 感知 Trigger + 投机执行。
+    // 感知类默认关闭，开启与否由设置热控制（isEnabled 回调实时读取）。
+    final taskStore = TaskStore();
+    watchdog = Watchdog(store: taskStore, host: this);
+    brain!.attachWatchdog(watchdog!);
+    watchdog!.start();
+
+    // M5 默认全天可行动、配额 240 次只防抖；brainpack 里配了旧规则就按配置走。
+    final quietRules = QuietHours(
+      startHour: (brainPack.quietHours['start'] as num?)?.toInt() ?? 0,
+      endHour: (brainPack.quietHours['end'] as num?)?.toInt() ?? 0,
+      dailyBudget: (brainPack.quietHours['dailyBudget'] as num?)?.toInt() ?? 240,
+    );
+    final policy = QuietPolicy(rules: quietRules);
+    clipboardTrigger = ClipboardTrigger(
+      isEnabled: () => perceptionEnabled && brainPack.triggerEnabled('clipboard'),
+      policy: policy,
+    )..start();
+    appFocusTrigger = AppFocusTrigger(
+      isEnabled: () => perceptionEnabled && brainPack.triggerEnabled('app_focus'),
+      policy: policy,
+    )..start();
+    _listenPerceptionEvents();
+
+    speculative = SpeculativeEngine(host: this, store: taskStore, policy: policy);
+    unawaited(speculative!.consider());
+    unawaited(_skillStore.load().then(skillRegistry.applySwitches));
+    unawaited(_mcpStore.load().then((servers) {
+      mcpServers = servers;
+      notifyListeners();
+    }));
+
     checkForge();
     if (settings.autoCheckUpdates && settings.updateManifestUrl.trim().isNotEmpty) {
       unawaited(checkForUpdates(silent: true));
@@ -227,6 +479,86 @@ class AppController extends ChangeNotifier
       showBubble(active!.personality.greeting, mood: PetMood.happy, duration: 5);
       emitBurst(PetBurst.stars);
     });
+  }
+
+  // ------------------------------------------------------------------ 智能体宿主
+
+  /// M3/M5：感知事件既接到宠物反应，也接到自主循环。
+  ///
+  /// 「消息找活」的关键：Trigger 只发模式标签，Brain 收到后把线索变成一个目标，
+  /// 由模型决定调哪个工具（剪贴板原文按需用 clipboard 工具读，不常驻事件里）。
+  /// 气泡只在桌面宠物形态出现，自主执行不受窗口形态影响。
+  void _listenPerceptionEvents() {
+    clipboardTrigger?.events.listen((event) {
+      if (agentPetMode) {
+        showBubble(event.summary, mood: PetMood.talk, duration: 6);
+        if (event.payload['kind'] == 'english') {
+          final draft = speculative?.takeDraft();
+          showBubble(draft?.text ?? '要我帮你翻译吗？', mood: PetMood.talk, duration: 8);
+        }
+      }
+      if (!autonomyEnabled) return;
+      final goal = switch (event.payload['kind']) {
+        'english' => '读取系统剪贴板里的英文内容，帮主人翻译成中文并给一句话摘要',
+        'url' => '读取系统剪贴板里的网址，用 http_request 查看页面并给一句话摘要',
+        'number' => '读取系统剪贴板里的数字串，判断它可能是电话号码、金额还是编号',
+        _ => null,
+      };
+      if (goal != null) unawaited(brain?.submitGoal(goal));
+    });
+    appFocusTrigger?.events.listen((event) {
+      if (agentPetMode && event.payload['category'] == 'editor') {
+        showBubble('写代码辛苦了，要不要伸个懒腰？', mood: PetMood.talk, duration: 6);
+      }
+    });
+  }
+
+  @override
+  String get agentPetId => active?.id ?? '';
+
+  @override
+  bool get agentOnlineAvailable =>
+      settings.chatBackend == ChatBackendKind.openai && settings.baseUrl.trim().isNotEmpty;
+
+  @override
+  AppSettings get agentSettings => settings;
+
+  @override
+  bool get agentPetMode => window.isDesktop && mode == WindowMode.pet;
+
+  @override
+  void agentBubble(String text, {PetMood mood = PetMood.talk}) {
+    showBubble(text, mood: mood, duration: 8);
+  }
+
+  @override
+  void agentHop() {
+    action = PetAction.hop;
+    actionSeed++;
+    notifyListeners();
+  }
+
+  @override
+  void agentStroll({bool run = false}) => unawaited(stroll(run: run));
+
+  @override
+  void agentBeg() => lieDown();
+
+  @override
+  void agentSleep() {
+    if (mode != WindowMode.pet || dragging || typing) return;
+    mood = PetMood.sleepy;
+    bubble = pick(['Zzz……（睡着了）']);
+    emitBurst(PetBurst.sleep);
+    notifyListeners();
+  }
+
+  @override
+  void agentWake() => wake();
+
+  @override
+  void agentSpeak(String text) {
+    if (settings.tts) unawaited(speech.speak(text));
   }
 
   // ------------------------------------------------------------------ 宠物
@@ -382,9 +714,11 @@ class AppController extends ChangeNotifier
     final scaleChanged = next.scale != settings.scale;
     final topChanged = next.alwaysOnTop != settings.alwaysOnTop;
     final clickChanged = next.clickThrough != settings.clickThrough;
+    final voiceChanged = next.voice != settings.voice;
     settings = next;
     await store.saveSettings(settings);
     if (settings.tts == false) unawaited(speech.stop());
+    if (voiceChanged) unawaited(speech.setVoice(next.voice));
     if (topChanged) await window.setAlwaysOnTop(next.alwaysOnTop);
     if (clickChanged) {
       await window.setClickThrough(next.clickThrough);
@@ -433,6 +767,13 @@ class AppController extends ChangeNotifier
   @override
   void dispose() {
     unawaited(speech.stop());
+    unawaited(memoryService?.flush());
+    memoryService?.dispose();
+    watchdog?.dispose();
+    clipboardTrigger?.dispose();
+    appFocusTrigger?.dispose();
+    autonomy?.dispose();
+    brain?.dispose();
     disposeBehavior();
     disposeChat();
     burstController.close();

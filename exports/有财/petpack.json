@@ -96,14 +96,16 @@
       ]
     },
     "idle": {
-      "fps": 8,
+      "fps": 6,
       "frames": [
         "idle_0.png",
         "idle_1.png",
         "idle_2.png",
         "idle_3.png",
         "idle_4.png",
-        "idle_5.png"
+        "idle_5.png",
+        "idle_6.png",
+        "idle_7.png"
       ]
     },
     "talk": {
@@ -166,27 +168,99 @@
     "walk_left": {
       "fps": 8,
       "frames": [
-        "walk_left_0.png",
-        "walk_left_1.png",
-        "walk_left_2.png",
-        "walk_left_3.png",
-        "walk_left_4.png",
-        "walk_left_5.png",
-        "walk_left_6.png",
-        "walk_left_7.png"
+        "walk_0.png",
+        "walk_1.png",
+        "walk_2.png",
+        "walk_3.png",
+        "walk_4.png",
+        "walk_5.png",
+        "walk_6.png",
+        "walk_7.png"
       ]
     },
     "run_left": {
       "fps": 12,
       "frames": [
-        "run_left_0.png",
-        "run_left_1.png",
-        "run_left_2.png",
-        "run_left_3.png",
-        "run_left_4.png",
-        "run_left_5.png",
-        "run_left_6.png",
-        "run_left_7.png"
+        "run_0.png",
+        "run_1.png",
+        "run_2.png",
+        "run_3.png",
+        "run_4.png",
+        "run_5.png",
+        "run_6.png",
+        "run_7.png"
+      ]
+    },
+    "stretch": {
+      "fps": 5,
+      "frames": [
+        "stretch_0.png",
+        "stretch_1.png",
+        "stretch_2.png",
+        "stretch_3.png",
+        "stretch_4.png",
+        "stretch_5.png",
+        "stretch_6.png",
+        "stretch_7.png"
+      ]
+    },
+    "wag": {
+      "fps": 8,
+      "frames": [
+        "wag_0.png",
+        "wag_1.png",
+        "wag_2.png",
+        "wag_3.png",
+        "wag_4.png",
+        "wag_5.png"
+      ]
+    },
+    "shake": {
+      "fps": 12,
+      "frames": [
+        "shake_0.png",
+        "shake_1.png",
+        "shake_2.png",
+        "shake_3.png",
+        "shake_4.png",
+        "shake_5.png",
+        "shake_6.png",
+        "shake_7.png"
+      ]
+    },
+    "bark": {
+      "fps": 7,
+      "frames": [
+        "bark_0.png",
+        "bark_1.png",
+        "bark_2.png",
+        "bark_3.png",
+        "bark_4.png",
+        "bark_5.png"
+      ]
+    },
+    "sniff": {
+      "fps": 6,
+      "frames": [
+        "sniff_0.png",
+        "sniff_1.png",
+        "sniff_2.png",
+        "sniff_3.png",
+        "sniff_4.png",
+        "sniff_5.png"
+      ]
+    },
+    "celebrate": {
+      "fps": 8,
+      "frames": [
+        "celebrate_0.png",
+        "celebrate_1.png",
+        "celebrate_2.png",
+        "celebrate_3.png",
+        "celebrate_4.png",
+        "celebrate_5.png",
+        "celebrate_6.png",
+        "celebrate_7.png"
       ]
     }
   }

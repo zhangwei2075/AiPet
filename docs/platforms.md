@@ -55,6 +55,11 @@
 事件监听（`TrayIconClickedEvent` / `MenuItemClickedEvent`），不再走 0.5.x 的 deprecated 兼容桥。
 
 - 图标直接加载打包进应用的 `assets/icons/app_icon.png`（`ImageAsset.fromAsset`），不用再落临时文件。
+- **托盘与任务栏图标统一换成「有财」**：`tools/make_youcai_icons.py`（幂等）以
+  `exports/有财/base.png` 为母版，一次生成 `app_icon.png`、`app_icon.ico`、`tray.ico`
+  和 `windows/runner/resources/app_icon.ico`（8 帧多尺寸）。任务栏走 `Runner.rc` 的
+  `IDI_APP_ICON`，托盘走上面的 png，两者同源；托盘 tooltip 为「有财 · 摸摸宠 MomoPet」。
+  重跑方式：`services/petforge/.venv/Scripts/python.exe tools/make_youcai_icons.py`。
 - 鼠标穿透做成菜单里的 checkbox，状态由 `TrayService.setClickThrough` 同步；
   托盘左键 = 显示/隐藏，右键 = 弹菜单，双键 = 打开聊天。
 - 资源释放走 `destroy()`：先解绑监听，再 `Menu.dispose()` / `TrayIcon.dispose()`。

@@ -2,6 +2,15 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../agent/activity.dart';
+import '../agent/brain.dart';
+import '../agent/chat_agent.dart';
+import '../agent/experience.dart';
+import '../agent/memory/memory_service.dart';
+import '../agent/pet_tool.dart';
+import '../agent/skill.dart';
+import '../agent/system_prompt.dart';
+import '../agent/tool_runtime.dart';
 import '../core/app_mode.dart';
 import '../data/memory_store.dart';
 import '../data/settings_store.dart';
@@ -36,6 +45,14 @@ mixin ChatCoordinator on ChangeNotifier {
   SettingsStore get store;
   ChatService get chatService;
   SpeechService get speech;
+  PetBrain? get brain;
+  ChatAgent? get chatAgent;
+  ToolRuntime get toolRuntime;
+  ExperienceBank get experienceBank;
+  AgentActivity get agentActivity;
+  bool get autonomyEnabled;
+  MemoryService? get memoryService;
+  SkillRegistry get skillRegistry;
   void emitBurst(PetBurst kind);
   void scheduleIdleReturn();
   void wake();
@@ -48,6 +65,24 @@ mixin ChatCoordinator on ChangeNotifier {
     if (text.isEmpty || pet == null || typing) return;
     wake();
 
+    // 1) Brain 的确定性规则：提醒 / 宠物动作 / 剪贴板；离线时还承担
+    //    本机操作路由与自主目标派发（见 brain.dart）。
+    final brainHandle = brain;
+    if (brainHandle != null) {
+      typing = true;
+      notifyListeners();
+      final brainReply = await brainHandle.handleUserText(text);
+      if (brainReply != null) {
+        bubble = null;
+        chatError = null;
+        _finishReply(PetReply(brainReply.text, brainReply.mood), pet, text);
+        return;
+      }
+      typing = false; // 不是确定性规则，交还给下面的聊天主通道
+    }
+    // 情景记忆：异步抽取这句话里值得长期记住的事实，不阻塞聊天。
+    unawaited(memoryService?.recordFromChat(petId: pet.id, userText: text, settings: settings));
+
     final userMessage = ChatMessage(role: ChatRole.user, text: text, at: DateTime.now());
     final history = List<ChatMessage>.of(messages);
     messages = [...messages, userMessage];
@@ -57,15 +92,74 @@ mixin ChatCoordinator on ChangeNotifier {
     chatError = null;
     notifyListeners();
 
-    final note = memory.promptFor(pet.id);
+    // 情景记忆组装：计数记忆 + 近几天 digest + top-K 情景（M2）。
+    final remembered = memoryService?.assemble(
+          petId: pet.id,
+          query: text,
+          countMemory: memory.promptFor(pet.id),
+        ) ??
+        memory.promptFor(pet.id);
+    final skillPrompt = skillRegistry.buildPromptFragmentFor(text);
+    final note = skillPrompt.isEmpty ? remembered : '$remembered\n\n$skillPrompt';
     final online = settings.chatBackend == ChatBackendKind.openai;
+    final tools = brainHandle?.registry.all ?? const <PetTool>[];
+    final permissions = toolRuntime.permissions;
 
+    // 高权限系统提示词：明确「可以操作整台电脑」，人格描述降级为语气参考。
+    // 同类目标的既往经验也在这里回灌，形成学习沉淀的使用侧。
+    String lessons = '';
+    try {
+      lessons = await experienceBank.recallForPrompt(text);
+    } catch (_) {
+      // 经验读不出来不影响聊天。
+    }
+    final preamble = buildAgentPreamble(
+      permissions: permissions,
+      tools: tools,
+      petName: pet.name,
+    );
+    final systemPrompt = buildAgentSystemPrompt(
+      personalityPrompt: pet.personality.systemPrompt,
+      tools: tools,
+      permissions: permissions,
+      memory: remembered,
+      skills: skillPrompt,
+      experience: lessons,
+      activity: [
+        agentActivity.statusLine ?? '',
+        '后台自主执行：${autonomyEnabled ? '开启' : '关闭'}',
+      ].where((line) => line.isNotEmpty).join('\n'),
+      petName: pet.name,
+    );
+
+    // 2) 在线 + 全权限：聊天级 ReAct，模型点名工具 → ToolRuntime 真实执行
+    //    → 结果回灌 → 直到给出结论。这才是「通过对话操作电脑」。
+    final agent = chatAgent;
+    if (online && agent != null && !permissions.paused && tools.isNotEmpty) {
+      try {
+        final result = await agent.respond(
+          input: text,
+          history: history,
+          settings: settings,
+          systemPrompt: systemPrompt,
+        );
+        _finishReply(OpenAiBackend.parseReply(result.text), pet, text);
+        return;
+      } catch (error) {
+        chatError = '这轮没能走工具通道：${_short(error.toString(), 80)}（已切回普通聊天）';
+        notifyListeners();
+      }
+    }
+
+    // 3) 本地小脑：没有在线模型，只做陪伴式回答；本机操作已在第 1 步由
+    //    Brain 的离线规则 / 自主循环接住。
     if (!online) {
       _finishReply(chatService.local(text, pet, affection: affection), pet, text);
       return;
     }
 
-    // 在线模型：逐字吐出来，让等待没那么难熬；失败就整段降级到本地小脑。
+    // 4) 在线模型不支持 tools / 工具通道失败：退回流式聊天，但提示词仍是
+    //    高权限版，并且如实告诉主人这一轮没有实际执行。
     final buffer = StringBuffer();
     try {
       await for (final delta in chatService.sendStream(
@@ -75,13 +169,19 @@ mixin ChatCoordinator on ChangeNotifier {
         settings: settings,
         affection: affection,
         memory: note,
+        systemPreamble: preamble,
       )) {
         buffer.write(delta);
         streamingText = OpenAiBackend.parseReply(buffer.toString()).text;
         notifyListeners();
       }
       streamingText = null;
-      _finishReply(OpenAiBackend.parseReply(buffer.toString().trim()), pet, text);
+      _finishReply(
+        OpenAiBackend.parseReply(buffer.toString().trim()),
+        pet,
+        text,
+        degradedError: chatError,
+      );
     } catch (error) {
       streamingText = null;
       _finishReply(
@@ -92,6 +192,9 @@ mixin ChatCoordinator on ChangeNotifier {
       );
     }
   }
+
+  String _short(String text, int limit) =>
+      text.length <= limit ? text : '${text.substring(0, limit)}…';
 
   /// 收尾：落一条宠物消息、切情绪、朗读、冒气泡、记一笔记忆。
   void _finishReply(PetReply reply, Pet pet, String userText, {String? degradedError}) {

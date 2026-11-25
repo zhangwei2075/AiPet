@@ -29,7 +29,6 @@ class GalleryTab extends StatelessWidget {
               children: [
                 Text('我的宠物', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
                 SizedBox(height: 3),
-                Text('每一只都住在你的桌面上，可以随时切换', style: TextStyle(fontSize: 11.5, color: AppColors.inkSoft)),
               ],
             ),
             Wrap(
@@ -325,11 +324,6 @@ class CreateTile extends StatelessWidget {
             const SizedBox(height: 12),
             const Text('用照片生成', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700)),
             const SizedBox(height: 4),
-            const Text(
-              '上传一张照片\n领养专属宠物',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 10.5, color: AppColors.inkSoft, height: 1.45),
-            ),
           ],
         ),
       ),

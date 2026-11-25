@@ -8,6 +8,7 @@ import '../core/app_mode.dart';
 import '../data/memory_store.dart';
 import '../data/settings_store.dart';
 import '../models/pet.dart';
+import '../agent/memory/memory_service.dart';
 import '../models/pet_memory.dart';
 import '../models/settings.dart';
 import '../services/window_service.dart';
@@ -41,6 +42,10 @@ mixin PetBehavior on ChangeNotifier {
   set eating(bool value);
   bool get awaitingTreat;
   set awaitingTreat(bool value);
+  bool get wagging;
+  set wagging(bool value);
+  bool get sniffing;
+  set sniffing(bool value);
   PetAction get action;
   set action(PetAction value);
   int get actionSeed;
@@ -50,6 +55,7 @@ mixin PetBehavior on ChangeNotifier {
   int get facing;
   set facing(int value);
   MemoryStore get memory;
+  MemoryService? get memoryService;
   WindowService get window;
   math.Random get random;
   StreamController<PetBurst> get burstController;
@@ -66,6 +72,11 @@ mixin PetBehavior on ChangeNotifier {
   Timer? _proactiveTimer;
   Timer? _eatTimer;
   Timer? _treatTimer;
+  Timer? _wagTimer;
+  Timer? _sniffTimer;
+  int _dragFlipCount = 0;
+  int _dragLastDxSign = 0;
+  bool _shakeArmed = false;
   DateTime _lastTap = DateTime.fromMillisecondsSinceEpoch(0);
 
   void showBubble(String text, {PetMood mood = PetMood.talk, int duration = 6}) {
@@ -102,6 +113,10 @@ mixin PetBehavior on ChangeNotifier {
     _stopBegging();
     if (mood == PetMood.sleepy) {
       mood = PetMood.idle;
+      // 睡醒先伸个懒腰再起
+      action = PetAction.stretch;
+      actionSeed++;
+      showBubble(pick(['哈——睡得好饱。', '伸个懒腰～', '唔…醒了？']), mood: PetMood.idle, duration: 4);
       notifyListeners();
     }
   }
@@ -115,13 +130,12 @@ mixin PetBehavior on ChangeNotifier {
       return;
     }
     if (wasBegging) {
-      // 冲着「求抚摸」来的，给双倍奖励
+      // 冲着「求抚摸」来的：揉肚子双倍奖励，舒服到摇尾巴
       affection += 2;
       unawaited(_rememberTouch(2));
       emitBurst(PetBurst.hearts);
-      action = PetAction.hop;
-      actionSeed++;
-      showBubble(pick(['嘿嘿，就是要这个～', '咕噜咕噜…', '再摸两下嘛！']),
+      _wag(2800);
+      showBubble(pick(['嘿嘿，就是要这个～', '咕噜咕噜…', '肚子最舒服了！']),
           mood: PetMood.love, duration: 3);
       return;
     }
@@ -150,6 +164,8 @@ mixin PetBehavior on ChangeNotifier {
       showBubble(pick(['不要再戳啦！', '哼，我生气了。', '摸够了没有…']), mood: PetMood.angry, duration: 3);
     } else if (head) {
       emitBurst(PetBurst.hearts);
+      // 摸头 + 好感高：舒服到摇尾巴
+      if (affection > 10) _wag(2000);
       showBubble(
         pick(['唔…好舒服。', '嘿嘿，再摸一下。', '眯起眼睛…', '最喜欢主人了。']),
         mood: affection > 10 ? PetMood.love : PetMood.happy,
@@ -185,6 +201,7 @@ mixin PetBehavior on ChangeNotifier {
 
   void stopPetting() {
     petting = false;
+    _wag(2200);
     scheduleIdleReturn();
     notifyListeners();
   }
@@ -210,6 +227,9 @@ mixin PetBehavior on ChangeNotifier {
     wake();
     _stopBegging();
     dragging = true;
+    _dragFlipCount = 0;
+    _dragLastDxSign = 0;
+    _shakeArmed = false;
     window.onDragMove = _onDragMove;
     notifyListeners();
     await window.beginDrag();
@@ -232,7 +252,15 @@ mixin PetBehavior on ChangeNotifier {
     window.onDragMove = null;
     window.endDrag();
     mood = PetMood.idle;
-    action = PetAction.drop;
+    // 拖着快速左右甩过 → 落地抖毛 + 晕乎乎一句
+    if (_shakeArmed) {
+      _shakeArmed = false;
+      action = PetAction.shake;
+      showBubble(pick(['汪呜…头好晕…', '别再晃我啦！', '甩甩就精神了～']),
+          mood: PetMood.happy, duration: 3);
+    } else {
+      action = PetAction.drop;
+    }
     actionSeed++;
     persistWindowPosition();
     notifyListeners();
@@ -242,6 +270,15 @@ mixin PetBehavior on ChangeNotifier {
   void _onDragMove(Offset delta) {
     if (delta.dx.abs() > 0.2) {
       facing = delta.dx > 0 ? 1 : -1;
+    }
+    // 甩动检测：拖拽中快速左右换向累计到 4 次就标记，松手时抖毛
+    if (dragging) {
+      final sign = delta.dx.sign.round();
+      if (sign != 0) {
+        if (_dragLastDxSign != 0 && sign != _dragLastDxSign) _dragFlipCount++;
+        _dragLastDxSign = sign;
+      }
+      if (_dragFlipCount >= 4) _shakeArmed = true;
     }
   }
 
@@ -278,8 +315,11 @@ mixin PetBehavior on ChangeNotifier {
     if (!settings.wander || !isDesktop) return;
     final delay = Duration(seconds: 26 + random.nextInt(30));
     _wanderTimer = Timer(delay, () {
-      // 三成概率小跑，其余慢走
-      unawaited(stroll(run: random.nextInt(10) < 3));
+      // 三成概率小跑，其余慢走；走完两成概率原地嗅探一会儿
+      final doRun = random.nextInt(10) < 3;
+      unawaited(stroll(run: doRun).then((_) {
+        if (random.nextInt(10) < 2) _sniff(2200);
+      }));
       _scheduleWander();
     });
   }
@@ -355,13 +395,21 @@ mixin PetBehavior on ChangeNotifier {
     wake();
     affection += 1;
     unawaited(_rememberTouch(1));
-    showBubble(pick(['在呢。', '戳我做什么～', '汪？']), mood: PetMood.happy, duration: 3);
+    if (random.nextInt(10) < 4) {
+      // 心情好就汪汪回应
+      action = PetAction.bark;
+      actionSeed++;
+      showBubble(pick(['汪！', '汪汪！', '汪——在呢！']), mood: PetMood.happy, duration: 3);
+    } else {
+      showBubble(pick(['在呢。', '戳我做什么～', '汪？']), mood: PetMood.happy, duration: 3);
+    }
   }
 
   /// 记录一次互动，撞到里程碑（第 20/50/100 次）时额外冒一句话。
   Future<void> _rememberTouch(int amount) async {
     final pet = active;
     if (pet == null) return;
+    memoryService?.recordInteraction(pet.id, '被摸', amount: amount);
     final milestone = await memory.tap(pet.id, amount: amount);
     if (milestone == null || mode == WindowMode.chat) return;
     showBubble('$milestone！我都记着呢。', mood: PetMood.love, duration: 4);
@@ -376,6 +424,7 @@ mixin PetBehavior on ChangeNotifier {
     final pet = active;
     if (pet == null) return;
     await memory.clear(pet.id);
+    await memoryService?.clearAll(pet.id);
     affection = 0;
     notifyListeners();
   }
@@ -421,9 +470,11 @@ mixin PetBehavior on ChangeNotifier {
       lieDown();
       showBubble('${displayName(pet)}想被摸摸～', mood: PetMood.love, duration: 5);
     } else if (kind == ProactiveKind.zoomies) {
+      action = PetAction.bark;
+      actionSeed++;
       unawaited(stroll(run: true));
       emitBurst(PetBurst.stars);
-      showBubble(pick(['憋不住啦，跑一圈！', '嗷呜——冲！', '活动一下筋骨～']),
+      showBubble(pick(['汪！憋不住啦，跑一圈！', '嗷呜——冲！', '汪汪，活动筋骨～']),
           mood: PetMood.happy, duration: 4);
     } else {
       emitBurst(PetBurst.note);
@@ -453,20 +504,47 @@ mixin PetBehavior on ChangeNotifier {
 
   /// 投喂窗口内点一下宠物 = 吃到零食，额外奖励并收起讨食动画。
   void feedTreat() {
+    memoryService?.recordInteraction(active?.id ?? '', '被投喂');
     awaitingTreat = false;
     eating = false;
     _eatTimer?.cancel();
     _treatTimer?.cancel();
     affection += 3;
     unawaited(_rememberTouch(3));
-    action = PetAction.hop;
+    // 吃到零食作揖庆祝，吃完意犹未尽摇尾巴
+    action = PetAction.celebrate;
     actionSeed++;
     emitBurst(PetBurst.hearts);
+    _wag(3200);
     showBubble(
       pick(['呜哇，是零食！谢谢主人～', '好好吃！再来一口嘛。', '最喜欢主人了！']),
       mood: PetMood.love,
       duration: 4,
     );
+  }
+
+  /// 开心摇尾巴一小段：互动后的余韵，PetStage 里作为循环帧动画表现。
+  void _wag(int milliseconds) {
+    wagging = true;
+    notifyListeners();
+    _wagTimer?.cancel();
+    _wagTimer = Timer(Duration(milliseconds: milliseconds), () {
+      wagging = false;
+      notifyListeners();
+    });
+  }
+
+  /// 原地嗅探一小段：漫步途中的好奇时刻。
+  void _sniff(int milliseconds) {
+    if (!isDesktop || mode != WindowMode.pet) return;
+    if (dragging || typing || isSleeping || begging) return;
+    sniffing = true;
+    notifyListeners();
+    _sniffTimer?.cancel();
+    _sniffTimer = Timer(Duration(milliseconds: milliseconds), () {
+      sniffing = false;
+      notifyListeners();
+    });
   }
 
   String proactiveLine(Pet pet) {
@@ -489,5 +567,7 @@ mixin PetBehavior on ChangeNotifier {
     _proactiveTimer?.cancel();
     _eatTimer?.cancel();
     _treatTimer?.cancel();
+    _wagTimer?.cancel();
+    _sniffTimer?.cancel();
   }
 }

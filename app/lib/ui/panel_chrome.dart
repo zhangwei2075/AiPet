@@ -97,30 +97,6 @@ class PanelSidebar extends StatelessWidget {
             _navItem(Icons.auto_awesome_rounded, '照片生成', PanelTab.create),
             _navItem(Icons.tune_rounded, '设置', PanelTab.settings),
             const Spacer(),
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: accent.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.tips_and_updates_rounded, size: 13, color: accent),
-                      const SizedBox(width: 5),
-                      const Text('小提示', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
-                    ],
-                  ),
-                  const SizedBox(height: 5),
-                  const Text(
-                    '按住宠物可以拖到任意位置；双击会转圈；桌面空白处可穿透鼠标。',
-                    style: TextStyle(fontSize: 10.5, height: 1.45, color: AppColors.inkSoft),
-                  ),
-                ],
-              ),
-            ),
             const SizedBox(height: 12),
             SizedBox(
               width: double.infinity,

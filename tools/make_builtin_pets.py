@@ -5,7 +5,9 @@
 产物（供 Flutter 直接作为 assets 使用）:
     app/assets/pets/<id>/idle.png, happy.png, love.png, angry.png, sleepy.png, blink.png
     app/assets/pets/<id>/petpack.json
-    app/assets/icons/app_icon.png, tray.ico, app_icon.ico
+
+应用图标已独立为「有财」形象，由 tools/make_youcai_icons.py 生成并维护；
+本脚本不再写 app/assets/icons/，避免重跑时把托盘 / 任务栏图标改回内置宠物。
 """
 
 from __future__ import annotations
@@ -448,13 +450,9 @@ def main() -> int:
         (folder / "petpack.json").write_text(json.dumps(pack, ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"[ok] {pet_id} -> {folder}")
 
-    icons = OUT / "icons"
-    icons.mkdir(parents=True, exist_ok=True)
-    icon = render("dog", PETS["doudou"], "happy").resize((256, 256), Image.LANCZOS)
-    icon.save(icons / "app_icon.png")
-    icon.save(icons / "app_icon.ico", sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
-    icon.save(icons / "tray.ico", sizes=[(16, 16), (32, 32), (48, 48), (64, 64)])
-    print(f"[ok] icons -> {icons}")
+    # 应用图标不在这里生成：托盘 / 任务栏 / EXE 图标统一由 make_youcai_icons.py
+    # 以 exports/有财/base.png 为母版输出，重跑本脚本不会覆盖它们。
+    print("[skip] icons -> 由 tools/make_youcai_icons.py 维护（有财）")
     return 0
 
 

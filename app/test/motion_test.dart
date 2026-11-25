@@ -91,4 +91,77 @@ void main() {
       }
     });
   });
+
+  group('MotionEngine v2 交互动作', () {
+    /// 所有姿态函数在完整时间/进度扫描内必须输出有限值，防止 NaN 污染渲染。
+    void expectFinite(PetPose pose, String tag) {
+      expect(pose.scaleX.isFinite, isTrue, reason: tag);
+      expect(pose.scaleY.isFinite, isTrue, reason: tag);
+      expect(pose.offsetX.isFinite, isTrue, reason: tag);
+      expect(pose.offsetY.isFinite, isTrue, reason: tag);
+      expect(pose.rotation.isFinite, isTrue, reason: tag);
+    }
+
+    test('stretch 是「下沉-保持-收回」的单峰包络', () {
+      for (var i = 0; i <= 20; i++) {
+        final pose = MotionEngine.stretch(i / 20);
+        expectFinite(pose, 'stretch $i/20');
+      }
+      // 起手和收尾都回到静止
+      expect(MotionEngine.stretch(0).offsetY, 0);
+      expect(MotionEngine.stretch(1).offsetY, closeTo(0, 0.5));
+      // 满弓时下沉、前倾、压扁
+      final peak = MotionEngine.stretch(0.5);
+      expect(peak.offsetY, greaterThan(4));
+      expect(peak.rotation, greaterThan(0.05));
+      expect(peak.scaleY, lessThan(1));
+    });
+
+    test('wag 有雀跃起伏和左右摆', () {
+      var maxBounce = 0.0;
+      for (var i = 0; i < 20; i++) {
+        final pose = MotionEngine.wag(i * 0.1);
+        expectFinite(pose, 'wag $i');
+        maxBounce = math.max(maxBounce, pose.offsetY.abs());
+      }
+      expect(maxBounce, greaterThan(2));
+    });
+
+    test('shake 是高频甩动且幅度有界', () {
+      var maxSway = 0.0;
+      for (var i = 0; i < 40; i++) {
+        final pose = MotionEngine.shake(i * 0.05);
+        expectFinite(pose, 'shake $i');
+        maxSway = math.max(maxSway, pose.offsetX.abs());
+        expect(pose.rotation.abs(), lessThan(0.1));
+      }
+      expect(maxSway, greaterThan(3));
+    });
+
+    test('bark 两声脉冲，起止归零', () {
+      expect(MotionEngine.bark(0).offsetY, 0);
+      expect(MotionEngine.bark(1).offsetY, closeTo(0, 0.5));
+      // 1/4 与 3/4 处是两次吠叫的峰
+      expect(MotionEngine.bark(0.25).offsetY, lessThan(-2));
+      expect(MotionEngine.bark(0.75).offsetY, lessThan(-2));
+      // 峰间谷底回到放松
+      expect(MotionEngine.bark(0.5).offsetY, closeTo(0, 0.5));
+    });
+
+    test('sniff 持续低头带颤动', () {
+      final values = <double>[
+        for (var i = 0; i < 10; i++) MotionEngine.sniff(i * 0.2).offsetY,
+      ];
+      expect(values.every((y) => y > 3), isTrue); // 全程低头
+      expect(values.toSet().length, greaterThan(1)); // 有嗅闻颤动
+    });
+
+    test('celebrate 坐起后落回，起止归零', () {
+      expect(MotionEngine.celebrate(0).offsetY, 0);
+      expect(MotionEngine.celebrate(1).offsetY, closeTo(0, 0.5));
+      final peak = MotionEngine.celebrate(0.5);
+      expect(peak.offsetY, lessThan(-4)); // 升起
+      expect(peak.rotation, lessThan(-0.1)); // 前身抬起
+    });
+  });
 }

@@ -90,13 +90,37 @@ class _PetStageState extends State<PetStage> with TickerProviderStateMixin {
   void _playAction(PetAction action) {
     if (action == PetAction.none) return;
     _currentAction = action;
-    _action.duration = switch (action) {
+    _action.duration = _actionDuration(action);
+    _action.forward(from: 0);
+  }
+
+  /// 一次性动作时长：petpack 有对应序列时按「帧数 / fps」精确对齐，
+  /// 播完正好走完一遍帧；没有序列时用程序化姿态的兜底时长。
+  Duration _actionDuration(PetAction action) {
+    final motion = switch (action) {
+      PetAction.hop => PetMotion.hop,
+      PetAction.spin => PetMotion.spin,
+      PetAction.drop => PetMotion.drop,
+      PetAction.shake => PetMotion.shake,
+      PetAction.celebrate => PetMotion.celebrate,
+      PetAction.stretch => PetMotion.stretch,
+      PetAction.bark => PetMotion.bark,
+      PetAction.none => PetMotion.idle,
+    };
+    final seq = widget.pet.animations[motion.name];
+    if (seq != null && seq.frames.isNotEmpty && seq.fps > 0) {
+      return Duration(milliseconds: (seq.frames.length / seq.fps * 1000).round());
+    }
+    return switch (action) {
       PetAction.hop => const Duration(milliseconds: 560),
       PetAction.spin => const Duration(milliseconds: 780),
       PetAction.drop => const Duration(milliseconds: 420),
+      PetAction.shake => const Duration(milliseconds: 660),
+      PetAction.celebrate => const Duration(milliseconds: 1000),
+      PetAction.stretch => const Duration(milliseconds: 1600),
+      PetAction.bark => const Duration(milliseconds: 860),
       PetAction.none => const Duration(milliseconds: 320),
     };
-    _action.forward(from: 0);
   }
 
   void _scheduleBlink() {
@@ -146,6 +170,10 @@ class _PetStageState extends State<PetStage> with TickerProviderStateMixin {
         PetAction.hop => PetMotion.hop,
         PetAction.spin => PetMotion.spin,
         PetAction.drop => PetMotion.drop,
+        PetAction.shake => PetMotion.shake,
+        PetAction.celebrate => PetMotion.celebrate,
+        PetAction.stretch => PetMotion.stretch,
+        PetAction.bark => PetMotion.bark,
         PetAction.none => PetMotion.idle,
       };
     }
@@ -153,6 +181,8 @@ class _PetStageState extends State<PetStage> with TickerProviderStateMixin {
     if (controller.begging) return PetMotion.lie;
     if (controller.running) return PetMotion.run;
     if (controller.walking) return PetMotion.walk;
+    if (controller.wagging) return PetMotion.wag;
+    if (controller.sniffing) return PetMotion.sniff;
     return switch (controller.mood) {
       PetMood.angry => PetMotion.angry,
       PetMood.sleepy => PetMotion.sleepy,
@@ -173,6 +203,14 @@ class _PetStageState extends State<PetStage> with TickerProviderStateMixin {
     }
     return widget.pet.animations[name];
   }
+
+  /// 这些一次性动作的帧号代表动作进度（播一遍），不按 fps 循环。
+  bool _isOneShotIndexed(PetMotion motion) =>
+      motion == PetMotion.spin ||
+      motion == PetMotion.shake ||
+      motion == PetMotion.celebrate ||
+      motion == PetMotion.stretch ||
+      motion == PetMotion.bark;
 
   PetMood _frameMood(AppController controller) {
     if (controller.dragging) return PetMood.happy;
@@ -240,9 +278,9 @@ class _PetStageState extends State<PetStage> with TickerProviderStateMixin {
               final expressionFallback =
                   motion == PetMotion.idle && mood != PetMood.idle && !hasFrame;
               if (anim != null && anim.frames.isNotEmpty && !expressionFallback) {
-                if (motion == PetMotion.spin && _action.isAnimating) {
-                  // 绕垂直轴转身：帧号代表**朝向**，跟一次性动作进度走，不按 fps 循环。
-                  // 帧内已含柱面透视，这里不再叠任何 2D 旋转或倾斜。
+                if (_isOneShotIndexed(motion) && _action.isAnimating) {
+                  // 一次性帧动作：帧号跟动作进度走，播一遍正好走完序列；
+                  // spin 的帧内已含柱面透视，这里不再叠任何 2D 旋转或倾斜。
                   final index = (_action.value * anim.frames.length)
                       .floor()
                       .clamp(0, anim.frames.length - 1);

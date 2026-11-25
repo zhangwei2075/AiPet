@@ -9,7 +9,10 @@ enum PetBurst { hearts, stars, anger, sleep, note }
 enum PanelTab { gallery, create, settings }
 
 /// 一次性动作（由 `PetStage` 播放后调用 `completeAction` 复位）。
-enum PetAction { none, hop, spin, drop }
+/// v2 新增：shake（拖拽甩动后抖毛）/ celebrate（吃到零食作揖）/
+/// stretch（睡醒伸懒腰）/ bark（汪汪叫）。 petpack 有同名序列时播逐帧，
+/// 没有时退回 MotionEngine 的程序化姿态。 
+enum PetAction { none, hop, spin, drop, shake, celebrate, stretch, bark }
 
 /// 空闲时主动发起的行为，按宠物性格加权抽取。
 enum ProactiveKind { chat, treat, cuddle, zoomies }

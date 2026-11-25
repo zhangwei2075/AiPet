@@ -18,12 +18,43 @@ class SpeechService {
 
   bool get supported => Platform.isWindows || Platform.isAndroid || Platform.isMacOS || Platform.isIOS;
 
+  /// 预设声线：全平台可用（Windows SAPI 不支持枚举 voice，用语速/音调组合实现）。
+  static const Map<String, ({double rate, double pitch})> voices = {
+    'default': (rate: 0.52, pitch: 1.05),
+    'gentle': (rate: 0.46, pitch: 0.92),   // 温柔：慢、低
+    'lively': (rate: 0.62, pitch: 1.22),   // 活泼：快、高
+    'calm': (rate: 0.44, pitch: 0.85),     // 沉稳：更慢更低
+  };
+
+  static const Map<String, String> voiceLabels = {
+    'default': '默认',
+    'gentle': '温柔',
+    'lively': '活泼',
+    'calm': '沉稳',
+  };
+
+  String _voice = 'default';
+
+  /// 声线热切换：设置页改完立即生效，无需重建引擎。
+  Future<void> setVoice(String id) async {
+    _voice = voices.containsKey(id) ? id : 'default';
+    final params = voices[_voice]!;
+    if (_engine == null) return; // 未初始化，下次 _ensure 时会读到 _voice
+    try {
+      await _engine!.setSpeechRate(params.rate);
+      await _engine!.setPitch(params.pitch);
+    } catch (error) {
+      debugPrint('tts setVoice failed: $error');
+    }
+  }
+
   Future<FlutterTts> _ensure() async {
     final engine = _engine ??= FlutterTts();
     if (_ready) return engine;
+    final params = voices[_voice]!;
     await engine.setLanguage('zh-CN');
-    await engine.setSpeechRate(0.52);
-    await engine.setPitch(1.05);
+    await engine.setSpeechRate(params.rate);
+    await engine.setPitch(params.pitch);
     await engine.setVolume(1.0);
     // 不要开启 awaitSpeakCompletion(true)：flutter_tts 4.2.5 的 Windows 实现会把
     // Dart result 存进成员 speakResult（永不置空），而 stop() 与朗读完成回调

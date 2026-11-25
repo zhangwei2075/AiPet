@@ -60,13 +60,23 @@ class _PetViewState extends State<PetView> {
       builder: (context, constraints) {
         final petSize = math.min(constraints.maxWidth - 18, 300 * controller.scale);
         final showTools = !isDesktop || _hover;
-        return MouseRegion(
+        // 气泡尾巴朝下，底部锚在宠物上沿再留一点缝：无论宠物缩放到多大，
+        // 对话框都紧贴图片上方，不再被顶到窗口最上沿。
+        const bubbleGap = 6.0;
+        final bubbleSpace = constraints.maxHeight - petSize - bubbleGap - 4;
+        final maxLines = bubbleSpace < 90 ? 2 : (bubbleSpace < 140 ? 3 : 5);
+        return AnimatedBuilder(
+          animation: controller.agentActivity,
+          builder: (context, _) {
+            final activity = controller.agentActivity;
+            final status = activity.statusLine;
+            return MouseRegion(
           onEnter: (_) => setState(() => _hover = true),
           onExit: (_) => setState(() => _hover = false),
           child: Stack(
             children: [
               Positioned(
-                top: 4,
+                bottom: petSize + bubbleGap,
                 left: 8,
                 right: 8,
                 child: Center(
@@ -79,6 +89,10 @@ class _PetViewState extends State<PetView> {
                             text: controller.bubble!,
                             accent: accent,
                             maxWidth: math.min(constraints.maxWidth - 36, 320),
+                            maxLines: maxLines,
+                            status: status,
+                            statusBusy: activity.busy,
+                            statusOk: activity.lastOk,
                             onTap: controller.openChat,
                             onClose: controller.dismissBubble,
                           )
@@ -86,6 +100,9 @@ class _PetViewState extends State<PetView> {
                             key: const ValueKey('hint'),
                             text: controller.isSleeping ? '睡着啦…点一下叫醒' : '点我摸摸 · 拖动搬家 · 双击转圈',
                             accent: accent,
+                            status: status,
+                            statusBusy: activity.busy,
+                            statusOk: activity.lastOk,
                           ),
                   ),
                 ),
@@ -133,6 +150,8 @@ class _PetViewState extends State<PetView> {
               ),
             ],
           ),
+            );
+          },
         );
       },
     );

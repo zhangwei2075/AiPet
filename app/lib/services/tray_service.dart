@@ -45,9 +45,11 @@ class TrayService {
       _trayIcon = trayIcon;
 
       // 图标直接用打进包里的 png，不再落临时文件。
+      // app_icon.png 由 tools/make_youcai_icons.py 从「有财」立绘生成，
+      // 与任务栏的 windows/runner/resources/app_icon.ico 用的是同一张母版。
       final icon = ImageAsset.fromAsset('assets/icons/app_icon.png');
       if (icon != null) trayIcon.icon = icon;
-      trayIcon.setTooltip('摸摸宠 · MomoPet');
+      trayIcon.setTooltip('有财 · 摸摸宠 MomoPet');
       trayIcon.setContextMenuTrigger(ContextMenuTrigger.rightClicked);
 
       final menu = Menu.create();

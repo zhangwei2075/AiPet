@@ -6,6 +6,7 @@ import '../models/pet.dart';
 import '../models/pet_memory.dart';
 import '../state/app_controller.dart';
 import 'common.dart';
+import 'memory_page.dart';
 import 'speech_bubble.dart';
 import 'theme.dart';
 
@@ -93,6 +94,7 @@ class _ChatViewState extends State<ChatView> {
           children: [
             _header(accent),
             const Divider(height: 1),
+            _statusBanner(accent),
             Expanded(child: _messages(accent)),
             if (controller.typing) _typingRow(accent),
             if (controller.chatError != null) _errorBanner(),
@@ -107,8 +109,8 @@ class _ChatViewState extends State<ChatView> {
   Widget _header(Color accent) {
     final backend = controller.settings.chatBackend;
     final status = backend == ChatBackendKind.openai
-        ? 'AI · ${controller.settings.model}'
-        : '本地小脑 · 离线也能聊';
+        ? 'AI · ${controller.settings.model} · 可执行工具'
+        : '本地小脑 · 也能操作电脑';
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
       child: Row(
@@ -197,6 +199,77 @@ class _ChatViewState extends State<ChatView> {
     );
   }
 
+  /// 当前正在执行的任务状态：目标、第几步、正在调用的工具、最近动作。
+  /// 与桌面气泡共用 TaskStatusChip，数据来自 AgentActivity。
+  Widget _statusBanner(Color accent) {
+    final activity = controller.agentActivity;
+    final detail = activity.statusDetail;
+    if (detail == null) return const SizedBox.shrink();
+    final recent = activity.recent.take(2).toList();
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(14, 8, 14, 9),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.045),
+        border: Border(bottom: BorderSide(color: accent.withValues(alpha: 0.12))),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.auto_mode_rounded, size: 13, color: accent),
+              const SizedBox(width: 6),
+              Text(
+                detail.title,
+                style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: accent),
+              ),
+              const Spacer(),
+              if (activity.goalTitle != null && activity.stepLimit > 0)
+                Text(
+                  '${activity.step}/${activity.stepLimit} 步',
+                  style: const TextStyle(fontSize: 10.5, color: AppColors.inkSoft),
+                ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          TaskStatusChip(
+            status: detail.detail,
+            accent: accent,
+            busy: activity.busy,
+            ok: activity.lastOk,
+            maxWidth: 360,
+          ),
+          if (recent.isNotEmpty) ...[
+            const SizedBox(height: 5),
+            ...recent.map((line) => Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Row(
+                    children: [
+                      Text(line.timeLabel,
+                          style: const TextStyle(fontSize: 10, color: AppColors.inkSoft)),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          line.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: line.ok ? AppColors.inkSoft : const Color(0xFFC45B4A),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                )),
+          ],
+        ],
+      ),
+    );
+  }
+
   PetMemory? get memory => controller.activeMemory;
 
   Future<void> _showMemory() async {
@@ -260,9 +333,17 @@ class _ChatViewState extends State<ChatView> {
         ),
         actions: [
           TextButton(
+            onPressed: () {
+              Navigator.of(dialogContext).pop();
+              MemoryPage.open(context, controller);
+            },
+            child: const Text('情景记忆…'),
+          ),
+          TextButton(
             onPressed: () async {
               await controller.clearMemory();
               if (dialogContext.mounted) Navigator.of(dialogContext).pop();
+              if (mounted) setState(() {});
             },
             child: const Text('让它忘掉'),
           ),
@@ -393,7 +474,11 @@ class _ChatViewState extends State<ChatView> {
           const SizedBox(width: 6),
           Expanded(
             child: Text(
-              '在线模型没连上，先用本地小脑回答。${controller.chatError == null ? '' : ''}',
+              (controller.chatError ?? '').length <= 90
+                  ? (controller.chatError ?? '在线模型没连上，先用本地小脑回答。')
+                  : '在线模型没连上，先用本地小脑回答。',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontSize: 11, color: Color(0xFF8A5D1E)),
             ),
           ),
@@ -407,7 +492,7 @@ class _ChatViewState extends State<ChatView> {
   }
 
   Widget _quickChips(Color accent) {
-    const quick = ['摸摸头', '讲个笑话', '你叫什么', '今天有点累'];
+    const quick = ['摸摸头', '看看磁盘空间', '列出工作区文件', '查看进程', '讲个笑话'];
     return SizedBox(
       height: 34,
       child: ListView.separated(
@@ -444,7 +529,7 @@ class _ChatViewState extends State<ChatView> {
               onSubmitted: (_) => _send(),
               style: const TextStyle(fontSize: 13),
               decoration: const InputDecoration(
-                hintText: '跟它说点什么…',
+                hintText: '跟它说点什么，或让它操作电脑…',
                 isDense: true,
               ),
             ),

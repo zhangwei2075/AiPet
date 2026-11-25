@@ -1,5 +1,20 @@
 """按 Petdex 范式生成宠物动作帧（可重复运行，只依赖 Pillow + numpy）。
 
+动作清单（v2）
+--------
+idle / walk / run / hop / drop / lie / talk / eat / sleepy / angry / spin，
+新增 stretch（伸懒腰/play bow）/ wag（开心摇尾）/ shake（抖毛）/
+bark（汪汪叫）/ sniff（嗚探）/ celebrate（作揆庆祝）。
+
+朝向约定
+--------
+项目约定「原画朝左」（Petdex 导入时统一翻转，见 petdex_importer.dart）。
+侧面底图头朝右，所以**所有侧面视角动作（walk / run / 六个新动作）
+合成后统一水平镜像成朝左**再落盘；`walk_left` / `run_left`
+直接复用朝左的同一批文件（照片宠物只有一份侧面素材，
+不存在独立绘制的第二朝向）。
+
+
 设计要点
 --------
 一张正面抠图做不出 Petdex 那种逐帧手绘，但「整只宠物一起果冻变形」也不行。
@@ -71,26 +86,29 @@ SIDE_PARTS: dict[str, tuple[float, float, float, float, float, float]] = {
 }
 
 # 纯侧面标定（exports/有财/_ai/side_profile_raw_cut.png，90° 正侧视、头朝右）。
+# v2：腿部椭圆半径比初版放大约 12% —— 摆幅加大后，饱和内核必须覆盖更大的扫掠区，
+# 否则白描边会在腿离原位后拖出弧形细丝（见 Rig 注释）。
 # 和 SIDE 的区别：身体轴水平展开，四条腿沿 x 前后排开、上下错位（远侧稍高），
 # 后腿不再被卫衣下摆挡住 —— 这是步幅能拉大的前提。坐标不能和 SIDE 互换。
 # 数值由轮廓的行 / 列投影实测（y=490 行四段腿区间：38-119 / 250-341 / 349-394，
 # 加 y=460 的 129-212），不要照着网格目测，正侧视的腿是斜的，目测必然偏。
 PROFILE_PARTS: dict[str, tuple[float, float, float, float, float, float]] = {
     "head": (390, 142, 92, 88, 332, 236),
-    "ear_left": (392, 130, 44, 50, 398, 84),
-    "ear_right": (440, 112, 26, 30, 432, 90),
-    "mouth": (458, 180, 28, 26, 444, 174),
-    "body": (295, 305, 112, 105, 295, 325),
-    "front_left": (370, 452, 30, 48, 366, 382),
-    "front_right": (290, 458, 48, 52, 300, 386),
-    "hind_left": (85, 452, 42, 58, 112, 384),
-    "hind_right": (170, 438, 40, 54, 182, 380),
-    "tail": (95, 250, 55, 68, 150, 296),
+    "ear_left": (392, 130, 46, 52, 398, 84),
+    "ear_right": (440, 112, 28, 32, 432, 90),
+    "mouth": (458, 180, 30, 28, 444, 174),
+    "body": (295, 305, 114, 106, 295, 325),
+    "front_left": (370, 452, 34, 54, 366, 382),
+    "front_right": (290, 458, 52, 58, 300, 386),
+    "hind_left": (85, 452, 46, 64, 112, 384),
+    "hind_right": (170, 438, 44, 60, 182, 380),
+    "tail": (95, 250, 58, 72, 150, 296),
 }
 
 # Petdex 标准帧数：idle 6 / run-right 8 / run-left 8 / jump 5 / failed 8 / waiting 6 ...
+# v2 新增：stretch / wag / shake / bark / sniff / celebrate；idle 6→8 帧换更慢的呼吸。
 FRAME_COUNTS = {
-    "idle": 6,
+    "idle": 8,
     "walk": 8,
     "run": 8,
     "hop": 5,
@@ -101,9 +119,15 @@ FRAME_COUNTS = {
     "sleepy": 6,
     "angry": 8,
     "spin": 8,
+    "stretch": 8,
+    "wag": 6,
+    "shake": 8,
+    "bark": 6,
+    "sniff": 6,
+    "celebrate": 8,
 }
 FPS = {
-    "idle": 8,
+    "idle": 6,
     "walk": 8,
     "run": 12,
     "hop": 10,
@@ -114,7 +138,29 @@ FPS = {
     "sleepy": 4,
     "angry": 10,
     "spin": 12,
+    "stretch": 5,
+    "wag": 8,
+    "shake": 12,
+    "bark": 7,
+    "sniff": 6,
+    "celebrate": 8,
 }
+
+# 这些动作合成在侧面底图上，落盘前要镜像成「原画朝左」。
+PROFILE_MOTIONS = ("walk", "run", "stretch", "wag", "shake", "bark", "sniff", "celebrate")
+
+
+def _smoothstep(t: float) -> float:
+    t = max(0.0, min(1.0, float(t)))
+    return t * t * (3.0 - 2.0 * t)
+
+
+def _pulse(progress: float, start: float, duration: float) -> float:
+    """一次性动作里的单峰包络：[start, start+duration] 内从 0 升到 1 再回落。"""
+    t = (progress - start) / max(duration, 1e-6)
+    if t < 0.0 or t > 1.0:
+        return 0.0
+    return math.sin(math.pi * t)
 
 _GRID = np.mgrid[0:SIZE, 0:SIZE].astype(np.float32)
 _YS, _XS = _GRID[0], _GRID[1]
@@ -132,6 +178,7 @@ class Rig:
         self,
         parts: dict[str, tuple[float, float, float, float, float, float]],
         rigid: tuple[str, ...] = (),
+        margin: int = 56,
     ) -> None:
         self.parts = parts
         self.weights: dict[str, np.ndarray] = {}
@@ -139,7 +186,6 @@ class Rig:
         for name, (cx, cy, rx, ry, px, py) in parts.items():
             r2 = ((_XS - cx) / rx) ** 2 + ((_YS - cy) / ry) ** 2
             # 采样窗口：按枢轴旋转后会偏出原区域，留足余量（rigid 分支也要有）
-            margin = 56
             self.windows[name] = (
                 int(max(0, min(cx - rx, px - rx) - margin)),
                 int(min(SIZE, max(cx + rx, px + rx) + margin)),
@@ -163,9 +209,10 @@ class Rig:
 
 # 腿和尾巴是旋转幅度最大的部件，必须用「椭圆内饱和」权重；
 # 软高斯在边界上留半权重，会让原位描边和旋转后描边双重曝光，拖出白色细丝。
+# v2 摆幅加大，侧面标定的采样窗口余量同步从 56 提到 76，避免旋转后的腿部采样截断。
 RIG_FRONT = Rig(FRONT_PARTS)
 RIG_SIDE = Rig(SIDE_PARTS, rigid=("front_left", "front_right", "hind_left", "hind_right", "tail"))
-RIG_PROFILE = Rig(PROFILE_PARTS, rigid=("front_left", "front_right", "hind_left", "hind_right", "tail"))
+RIG_PROFILE = Rig(PROFILE_PARTS, rigid=("front_left", "front_right", "hind_left", "hind_right", "tail"), margin=76)
 
 
 class Part:
@@ -290,17 +337,26 @@ def _squeeze(arr: np.ndarray, k: float) -> np.ndarray:
 
 
 def _idle(phase: float) -> list[Part]:
+    """待机 v2：呼吸 + 尾巴摇摆 + 周期性单耳抖动 + 轻微张望。
+
+    8 帧 @ 6fps 约 1.33s 一圈。耳朵抖动用高斯包络卡在周期 0.66 处，
+    只抖左耳 —— 双耳同抖会读成「整只狗在簸」。
+    """
     breath = math.sin(phase)
+    u = (phase % (2 * math.pi)) / (2 * math.pi)
+    twitch = math.exp(-0.5 * ((u - 0.66) / 0.055) ** 2)
     return [
-        Part("body", sy=1 + 0.012 * breath, ty=-0.6 * breath),
-        Part("head", ty=-1.8 * breath, angle=0.008 * breath),
-        Part("ear_left", angle=0.05 * math.sin(phase - 0.6)),
-        Part("ear_right", angle=-0.05 * math.sin(phase - 0.6)),
-        Part("tail", angle=0.22 * math.sin(phase * 2)),
+        Part("body", sy=1 + 0.014 * breath, ty=-0.8 * breath),
+        Part("head", ty=-2.2 * breath, tx=1.6 * math.sin(phase),
+             angle=0.018 * math.sin(phase + 0.8)),
+        Part("ear_left", angle=0.05 * math.sin(phase - 0.6) + 0.42 * twitch),
+        Part("ear_right", angle=-0.06 * math.sin(phase - 0.6)),
+        Part("tail", angle=0.30 * math.sin(phase * 2 + 0.5)),
         Part("front_left"),
         Part("front_right"),
         Part("hind_left"),
-        Part("mouth"),
+        Part("mouth", ty=-2.2 * breath,
+             angle=0.018 * math.sin(phase + 0.8), sy=1.0 + 0.06 * breath),
     ]
 
 
@@ -331,11 +387,11 @@ def _gait(phase: float, amp: float, lift: float, inward: float, bob: float, sway
 
 
 def _walk(phase: float) -> list[Part]:
-    return _gait(phase, amp=0.13, lift=22.0, inward=5.0, bob=5.5, sway=6.0)
+    return _gait(phase, amp=0.17, lift=26.0, inward=6.0, bob=7.0, sway=8.0)
 
 
 def _run(phase: float) -> list[Part]:
-    parts = _gait(phase, amp=0.18, lift=32.0, inward=7.0, bob=8.0, sway=7.5)
+    parts = _gait(phase, amp=0.22, lift=36.0, inward=8.0, bob=10.0, sway=9.0)
     for part in parts:
         if part.name == "body":
             part.angle += 0.05
@@ -354,6 +410,9 @@ def _gait_side(
     lift: float,
     bob: float,
     dim_far: float,
+    phases: dict[str, float] | None = None,
+    pitch: float = 0.0,
+    flight: float = 0.0,
 ) -> list[Part]:
     """侧面视角的四足交替：腿绕肩 / 胯**前后摆动**，对角两两成对。
 
@@ -386,36 +445,71 @@ def _gait_side(
             gain=weight,
         )
 
-    # 对角步态：近前 + 远后 同相，远前 + 近后 反相。
+    # 步态相位表：缺省对角步态（小跑）；飞奔传 _RUN_PHASES（前对/后对各成组）。
+    off = phases or {}
     # gain 拉高是必须的：腿一旦转离原位，权重不饱和的地方会留着原图同一条腿的残影，
     # 叠起来就是「一条腿变成两条」。让腿区域的权重压到 1，rest 才会归零。
     parts = [
-        leg("front_left", phase, 2.6),
-        leg("hind_right", phase, 2.3, far=True),
-        leg("front_right", phase + math.pi, 2.3, far=True),
-        leg("hind_left", phase + math.pi, 2.6),
+        leg("front_left", phase + off.get("front_left", 0.0), 2.8),
+        leg("hind_right", phase + off.get("hind_right", 0.0), 2.5, far=True),
+        leg("front_right", phase + off.get("front_right", math.pi), 2.5, far=True),
+        leg("hind_left", phase + off.get("hind_left", math.pi), 2.8),
     ]
     bounce = abs(math.sin(phase))
+    head_ty = (bob * 0.85 + flight * 0.8) * bounce
+    head_angle = 0.030 * math.cos(phase) + pitch * 0.6 * math.sin(phase)
     parts += [
-        Part("body", ty=-bob * bounce, sx=1 - 0.018 * bounce),
-        Part("head", ty=-bob * 0.8 * bounce, angle=0.022 * math.cos(phase)),
-        Part("ear_left", angle=0.15 * math.sin(phase - 0.7)),
-        Part("ear_right", angle=0.13 * math.sin(phase - 0.8)),
-        Part("tail", angle=0.30 * math.sin(phase * 2)),
-        Part("mouth"),
+        # 躯干：起伏 + 可选俯仰摇兒；flight 是滞空附加抬升，飞奔时身棁同步伸展。
+        Part(
+            "body",
+            ty=-(bob + flight) * bounce,
+            sx=1 - 0.018 * bounce + 0.05 * flight / 5.0 * bounce,
+            angle=pitch * math.sin(phase),
+        ),
+        Part(
+            "head",
+            ty=-head_ty,
+            angle=head_angle,
+        ),
+        Part("ear_left", angle=0.22 * math.sin(phase - 0.7) + head_angle * 0.5,
+             ty=-head_ty * 0.9),
+        Part("ear_right", angle=0.19 * math.sin(phase - 0.85) + head_angle * 0.5,
+             ty=-head_ty * 0.9),
+        Part("tail", angle=0.45 * math.sin(phase * 2)),
+        # 嘴部椭圆落在头部饱和权重区内：必须继承头部的完整变换，否则两层互相拉扯出鬼影
+        Part("mouth", ty=-head_ty, angle=head_angle),
     ]
     return parts
 
 
 def _walk_side(phase: float, table: dict = SIDE_PARTS) -> list[Part]:
-    # amp 上限的由来：椭圆遮罩固定、内容随腿旋转，摆幅一大，腿的白描边
-    # 就会扫进 vacated 区域拖出弧形细丝（0.27 rad 实测明显）。0.14 时
-    # 脚掌位移约 10px，细丝藏在腿自身轮廓里，摆动读感靠 lift 补。
-    return _gait_side(phase, table=table, amp=0.14, lift=16.0, bob=4.0, dim_far=0.90)
+    # v2 摆幅 0.14→0.22、抬脚 16→24、起伏 4→6.5，并加躯干俯仰。
+    # 腿部椭圆已扩大约 12% 且窗口余量提到 76，扫掠区仍被饱和权重覆盖。
+    return _gait_side(
+        phase, table=table, amp=0.22, lift=24.0, bob=6.5, dim_far=0.88, pitch=0.035
+    )
 
+# 飞奔（rotary gallop）：前腿成对、后腿成对，对内错开小相位；
+# 后组领先前组约 0.75π，腾空相身体伸展并整体上抬。
+_RUN_PHASES = {
+    "front_left": 0.0,
+    "front_right": 0.35,
+    "hind_left": math.pi * 0.75,
+    "hind_right": math.pi * 0.75 + 0.3,
+}
 
 def _run_side(phase: float, table: dict = SIDE_PARTS) -> list[Part]:
-    parts = _gait_side(phase, table=table, amp=0.19, lift=24.0, bob=6.0, dim_far=0.88)
+    parts = _gait_side(
+        phase,
+        table=table,
+        amp=0.27,
+        lift=30.0,
+        bob=9.0,
+        dim_far=0.86,
+        phases=_RUN_PHASES,
+        pitch=0.055,
+        flight=5.0,
+    )
     for part in parts:
         if part.name == "body":
             # 奔跑时躯干前倾、整体略微前移
@@ -424,11 +518,15 @@ def _run_side(phase: float, table: dict = SIDE_PARTS) -> list[Part]:
         elif part.name == "head":
             part.ty -= 2.0
             part.angle += 0.05
+        elif part.name == "mouth":
+            # 嘴跟随头部（头部下探 2px、再前倾 0.05rad）
+            part.ty -= 2.0
+            part.angle += 0.05
         elif part.name in ("ear_left", "ear_right"):
-            part.angle *= 1.7
+            # 飞奔时耳朵向后飘，甩动幅度更大
+            part.angle = part.angle * 1.6 - 0.18
+            part.ty -= 1.8
     return parts
-
-
 def _hop(progress: float) -> tuple[list[Part], tuple[float, float]]:
     arc = math.sin(math.pi * progress)
     tuck = 0.5 - 0.5 * math.cos(2 * math.pi * progress)
@@ -462,17 +560,18 @@ def _drop(progress: float) -> list[Part]:
 
 
 def _lie(phase: float) -> list[Part]:
+    """趴下 v2：压得更扁、头贴得更低、前爪前伸，尾巴贴地慢摆。"""
     breath = math.sin(phase)
     return [
-        Part("body", ty=6.0, sy=0.94 + 0.012 * breath),
-        Part("head", ty=11.0, angle=0.14),
-        Part("ear_left", angle=0.24),
-        Part("ear_right", angle=-0.24),
-        Part("front_left", tx=-5.0, ty=2.0, angle=-0.10),
-        Part("front_right", tx=5.0, ty=2.0, angle=0.10),
-        Part("hind_left", ty=2.0),
-        Part("tail", angle=0.30 + 0.10 * breath),
-        Part("mouth", ty=10.0),
+        Part("body", ty=9.0, sy=0.90 + 0.014 * breath),
+        Part("head", ty=16.0, angle=0.20, gain=1.35),
+        Part("ear_left", ty=16.0, angle=0.20 + 0.10),
+        Part("ear_right", ty=16.0, angle=0.20 - 0.10),
+        Part("front_left", tx=-9.0, ty=3.0, angle=-0.16),
+        Part("front_right", tx=9.0, ty=3.0, angle=0.16),
+        Part("hind_left", ty=3.0, sy=0.94),
+        Part("tail", angle=0.35 + 0.18 * math.sin(phase * 2)),
+        Part("mouth", ty=16.0, angle=0.20, sy=0.94),
     ]
 
 
@@ -489,22 +588,23 @@ def _talk(phase: float) -> list[Part]:
         Part("front_left"),
         Part("hind_left"),
         Part("body"),
-        Part("tail", angle=0.16 * nod),
+        Part("tail", angle=0.30 * nod),
     ]
 
 
 def _eat(phase: float) -> list[Part]:
+    """进食 v2：埋头更深（头顶接近地面）、咀嚼节奏更强、尾巴边吃边摇。"""
     dip = 0.5 + 0.5 * math.sin(phase)
     chew = math.sin(phase * 2)
     return [
-        Part("head", ty=12.0 * dip, angle=0.06 * dip),
-        Part("mouth", ty=12.0 * dip + 2.0 * chew, sy=1.15),
-        Part("ear_left", angle=0.12 * dip),
-        Part("ear_right", angle=-0.12 * dip),
-        Part("body", ty=1.5 * dip),
-        Part("tail", angle=0.26 * math.sin(phase * 2)),
-        Part("front_left"),
-        Part("front_right"),
+        Part("head", ty=20.0 * dip, angle=0.10 * dip, gain=1.35),
+        Part("mouth", ty=20.0 * dip + 2.6 * chew, angle=0.10 * dip, sy=1.0 + 0.25 * chew),
+        Part("ear_left", ty=20.0 * dip, angle=0.10 * dip + 0.06 * dip),
+        Part("ear_right", ty=20.0 * dip, angle=0.10 * dip - 0.06 * dip),
+        Part("body", ty=2.0 * dip, sy=1 - 0.015 * dip),
+        Part("tail", angle=0.30 * math.sin(phase * 2)),
+        Part("front_left", ty=1.5 * dip),
+        Part("front_right", ty=1.5 * dip),
         Part("hind_left"),
     ]
 
@@ -512,7 +612,7 @@ def _eat(phase: float) -> list[Part]:
 def _sleepy(phase: float) -> list[Part]:
     breath = math.sin(phase)
     return [
-        Part("head", ty=9.0 + 1.4 * breath, angle=0.10),
+        Part("head", ty=12.0 + 1.6 * breath, angle=0.12),
         Part("ear_left", angle=0.26),
         Part("ear_right", angle=-0.26),
         Part("body", ty=4.0, sy=0.97 + 0.015 * breath),
@@ -525,19 +625,123 @@ def _sleepy(phase: float) -> list[Part]:
 
 
 def _angry(phase: float) -> list[Part]:
+    """生气 v2：更快的甩头跺脚、耳朵背过去、身体前倾逼近。"""
     shake = math.sin(phase * 2)
     return [
-        Part("head", angle=0.05 * shake, tx=4.0 * shake),
-        Part("ear_left", angle=0.30 + 0.06 * shake),
-        Part("ear_right", angle=-0.30 - 0.06 * shake),
-        Part("tail", angle=-0.34 * shake),
-        Part("body", tx=1.5 * shake),
-        Part("mouth", ty=1.2),
-        Part("front_left"),
-        Part("front_right"),
+        Part("head", angle=0.07 * shake, tx=6.0 * shake),
+        Part("ear_left", angle=0.42 + 0.08 * shake),
+        Part("ear_right", angle=-0.42 - 0.08 * shake),
+        Part("tail", angle=-0.45 * shake),
+        Part("body", tx=2.5 * shake, angle=0.04),
+        Part("mouth", ty=1.2, sy=1.0 + 0.2 * max(0.0, shake)),
+        Part("front_left", ty=-1.5 * max(0.0, shake)),
+        Part("front_right", ty=-1.5 * max(0.0, -shake)),
         Part("hind_left"),
     ]
 
+
+def _stretch(progress: float) -> list[Part]:
+    """伸懒腰 / play bow：胸口下沉前爪前伸、屁股撅起，停一拍再弹回来。
+
+    包络三段：前 30% 下沉、中段保持、后 25% 收回。尾巴翘起快速小摆 ——
+    这正好是狗邀请主人玩的经典姿势。
+    """
+    if progress < 0.30:
+        d = _smoothstep(progress / 0.30)
+    elif progress < 0.72:
+        d = 1.0
+    else:
+        d = 1.0 - _smoothstep((progress - 0.72) / 0.28)
+    wag = 0.16 * math.sin(progress * 2 * math.pi * 3)
+    return [
+        Part("head", ty=20.0 * d, tx=12.0 * d, angle=0.20 * d, gain=1.45),
+        Part("mouth", ty=20.0 * d, tx=12.0 * d, angle=0.20 * d, sy=1.0 + 0.30 * d),
+        Part("ear_left", ty=20.0 * d, tx=12.0 * d, angle=0.20 * d + 0.05 * d, gain=1.5),
+        Part("ear_right", ty=20.0 * d, tx=12.0 * d, angle=0.20 * d - 0.05 * d, gain=1.5),
+        Part("body", ty=7.0 * d, angle=0.12 * d, sy=1 - 0.05 * d, gain=1.3),
+        Part("front_left", tx=-14.0 * d, ty=4.0 * d, angle=0.42 * d, gain=2.2),
+        Part("front_right", tx=-10.0 * d, ty=2.0 * d, angle=0.30 * d, gain=2.2),
+        Part("hind_left", ty=-2.0 * d, gain=1.6),
+        Part("tail", angle=-0.30 * d + wag),
+    ]
+
+def _wag(phase: float) -> list[Part]:
+    """开心摇尾：尾巴大幅扫 + 整个后躯跟着晃 + 小幅度雀跃。"""
+    s = math.sin(phase * 2)
+    hop_b = abs(math.sin(phase))
+    return [
+        Part("tail", angle=0.62 * s),
+        Part("body", tx=3.5 * s, ty=-3.0 * hop_b, angle=0.030 * s),
+        Part("hind_left", tx=1.5 * s),
+        Part("head", ty=-2.5 * hop_b, angle=-0.035 * s),
+        Part("ear_left", angle=0.16 * math.sin(phase * 2 - 0.6) - 0.018 * s),
+        Part("ear_right", angle=-0.16 * math.sin(phase * 2 - 0.6) - 0.018 * s),
+        Part("front_left", ty=-2.0 * hop_b),
+        Part("front_right", ty=-2.0 * hop_b),
+        Part("mouth", ty=-2.5 * hop_b, angle=-0.035 * s, sy=1.25 + 0.15 * s),
+    ]
+
+def _shake(phase: float) -> list[Part]:
+    """抖毛 / 甩水：高频左右甩动，头和耳朵滞后半拍甩得更狠，四爪锚地。"""
+    s = math.sin(phase)
+    head_lag = math.sin(phase + 0.45)
+    return [
+        Part("body", tx=7.0 * s, angle=0.05 * s, sx=1 + 0.015 * math.sin(phase * 2)),
+        Part("head", tx=9.0 * head_lag, angle=0.09 * head_lag),
+        Part("mouth", tx=9.0 * head_lag, angle=0.09 * head_lag),
+        Part("ear_left", angle=0.55 * math.sin(phase + 0.9)),
+        Part("ear_right", angle=-0.55 * math.sin(phase + 0.7)),
+        Part("tail", angle=0.32 * math.sin(phase + 1.2)),
+        Part("front_left", gain=1.8),
+        Part("front_right", gain=1.8),
+        Part("hind_left", gain=1.8),
+    ]
+
+def _bark(progress: float) -> list[Part]:
+    """汪汪叫：两声「汪」（峰在 1/4 与 3/4），张嘴昂头、胸口上挺、身体小幅后坐。"""
+    e = abs(math.sin(progress * math.pi * 2)) ** 0.7
+    return [
+        Part("head", ty=-3.5 * e, angle=-0.10 * e, gain=1.35),
+        Part("mouth", ty=-1.5 * e, angle=-0.10 * e, sy=1.0 + 0.70 * e),
+        Part("ear_left", ty=-3.5 * e, angle=-0.10 * e + 0.30 * e, gain=1.5),
+        Part("ear_right", ty=-3.5 * e, angle=-0.10 * e - 0.26 * e, gain=1.5),
+        Part("body", tx=-3.0 * e, ty=-1.5 * e, angle=-0.035 * e),
+        Part("front_left", ty=-3.0 * e),
+        Part("front_right", ty=-3.0 * e),
+        Part("hind_left", gain=1.5),
+        Part("tail", angle=0.38 * math.sin(progress * math.pi * 8)),
+    ]
+
+def _sniff(phase: float) -> list[Part]:
+    """嗅探：鼻子几乎贴地，带高频嗅闻颤动，尾巴上翘小幅快摆。"""
+    tremor = 1.3 * math.sin(phase * 3)
+    return [
+        Part("head", ty=27.0, tx=15.0, angle=0.24, gain=1.5),
+        Part("mouth", ty=27.0 + tremor, tx=15.0, angle=0.24, sy=0.92),
+        Part("ear_left", ty=27.0, tx=15.0, angle=0.28, gain=1.5),
+        Part("ear_right", ty=27.0, tx=15.0, angle=0.16, gain=1.5),
+        Part("body", ty=2.0, angle=0.05, gain=1.25),
+        Part("front_left", tx=4.0, angle=0.12, gain=1.8),
+        Part("front_right", tx=4.0, angle=0.10, gain=1.8),
+        Part("hind_left", gain=1.4),
+        Part("tail", angle=-0.28 + 0.14 * math.sin(phase * 3)),
+    ]
+
+def _celebrate(progress: float) -> list[Part]:
+    """作揖庆祝：后腿撑地坐起、前爪抱拳上下拜，用于吃到零食后的奖励。"""
+    rise = math.sin(math.pi * min(1.0, progress * 1.12))
+    bow = 0.5 - 0.5 * math.cos(progress * math.pi * 4)
+    return [
+        Part("body", ty=-6.0 * rise, angle=-0.30 * rise, gain=1.35),
+        Part("head", ty=-5.0 * rise, angle=-0.10 * rise, gain=1.3),
+        Part("mouth", ty=-5.0 * rise, angle=-0.10 * rise, sy=1.0 + 0.40 * rise),
+        Part("ear_left", ty=-5.0 * rise, angle=-0.10 * rise - 0.06 * rise, gain=1.4),
+        Part("ear_right", ty=-5.0 * rise, angle=-0.10 * rise + 0.04 * rise, gain=1.4),
+        Part("front_left", ty=-26.0 * rise, tx=3.0 * rise, angle=-0.28 * rise - 0.10 * bow),
+        Part("front_right", ty=-26.0 * rise, tx=3.0 * rise, angle=-0.24 * rise + 0.10 * bow),
+        Part("hind_left", gain=2.0, sy=0.96),
+        Part("tail", angle=-0.20 * rise + 0.35 * math.sin(progress * math.pi * 8)),
+    ]
 
 def _spin(progress: float) -> tuple[list[Part], bool]:
     """绕垂直轴转身：头部保持可辨识，躯干按 |cos| 收窄，远近侧肢体错位并压暗。"""
@@ -608,11 +812,10 @@ def build(key: str, index: int, count: int) -> np.ndarray:
     # 转圈是按圆周等分的闭环：用 index/count，让 90°/270°（最窄帧）正好落在
     # 镜像切换点上，轮廓跳变被最窄宽度掩盖；用 index/(count-1) 会在 0.6 宽度处硬切。
     yaw = index / count
-    # 走路 / 奔跑优先用侧面底图：正面坐姿的四条腿在画面上叠在一起，
-    # 无论怎么摆都读不出「四条腿交替」，这是「只有一只脚在动」的根因。
-    # 纯侧面（90°）优先于 3/4 —— 后腿不被卫衣下摆遮住，步幅才拉得开。
+    # 侧面视角动作清单：走路 / 奔跑 / 六个新动作全部用纯侧面底图，
+    # 合成后统一镜像成「原画朝左」（项目朝向约定，见文件头注释）。
+    profiled = SRC_PROFILE is not None and key in PROFILE_MOTIONS
     side = SRC_SIDE is not None and key in ("walk", "run")
-    profile = SRC_PROFILE is not None and key in ("walk", "run")
     if key == "spin":
         if SPIN_VIEWS is not None:
             return _spin_frame(yaw).round().astype(np.uint8)
@@ -621,35 +824,32 @@ def build(key: str, index: int, count: int) -> np.ndarray:
         return _mirror(frame) if flip else frame
     if key == "idle":
         return compose(SRC, _idle(phase))
-    if key == "walk":
-        if profile:
-            return compose(SRC_PROFILE, _walk_side(phase, PROFILE_PARTS), rig=RIG_PROFILE)
-        if side:
-            return compose(SRC_SIDE, _walk_side(phase), rig=RIG_SIDE)
-        return compose(SRC, _walk(phase))
-    if key == "run":
-        if profile:
-            return compose(SRC_PROFILE, _run_side(phase, PROFILE_PARTS), rig=RIG_PROFILE)
-        if side:
-            return compose(SRC_SIDE, _run_side(phase), rig=RIG_SIDE)
-        return compose(SRC, _run(phase))
-    if key == "hop":
-        parts, offset = _hop(progress)
-        return compose(SRC, parts, offset)
-    if key == "drop":
-        return compose(SRC, _drop(progress))
-    if key == "lie":
-        return compose(SRC, _lie(phase))
-    if key == "talk":
-        return compose(SRC, _talk(phase))
-    if key == "eat":
-        return compose(SRC, _eat(phase))
-    if key == "sleepy":
-        return compose(SRC, _sleepy(phase))
-    if key == "angry":
-        return compose(SRC, _angry(phase))
-    raise KeyError(key)
-
+    if profiled or side:
+        table = PROFILE_PARTS if profiled else SIDE_PARTS
+        rig = RIG_PROFILE if profiled else RIG_SIDE
+        if key == "walk":
+            frame = compose(SRC_PROFILE if profiled else SRC_SIDE,
+                            _walk_side(phase, table), rig=rig)
+        elif key == "run":
+            frame = compose(SRC_PROFILE if profiled else SRC_SIDE,
+                            _run_side(phase, table), rig=rig)
+        elif key == "stretch":
+            frame = compose(SRC_PROFILE, _stretch(progress), rig=rig)
+        elif key == "wag":
+            frame = compose(SRC_PROFILE, _wag(phase), rig=rig)
+        elif key == "shake":
+            frame = compose(SRC_PROFILE, _shake(phase), rig=rig)
+        elif key == "bark":
+            frame = compose(SRC_PROFILE, _bark(progress), rig=rig)
+        elif key == "sniff":
+            frame = compose(SRC_PROFILE, _sniff(phase), rig=rig)
+        elif key == "celebrate":
+            frame = compose(SRC_PROFILE, _celebrate(progress), rig=rig,
+                            offset=(0.0, -10.0 * math.sin(math.pi * min(1.0, progress * 1.12))))
+        else:
+            raise KeyError(key)
+        return _mirror(frame)
+    return compose(SRC, _walk(phase) if key == "walk" else _run(phase))
 
 SRC: np.ndarray = np.zeros((SIZE, SIZE, 4), dtype=np.float32)
 # 侧前 3/4 四足底图；缺省时 walk / run 退回纯侧面，再缺就退回正面标定（效果差，但不会崩）。
@@ -746,19 +946,14 @@ def main() -> None:
             written += 1
         animations[key] = {"fps": FPS[key], "frames": files}
 
-    # Petdex 的 run-right / run-left 是两条独立状态行。这里生成**真正的水平镜像帧**，
-    # 而不是把帧序列倒过来播 —— 倒序会让脚往回迈，读起来像倒带。
+    # Petdex 的 run-right / run-left 是两条独立状态行。照片宠物只有一份侧面素材，
+    # 朝左的 walk 帧同时就是「朝左走」的画面：walk_left / run_left 直接引用同一批
+    # 文件，App 端 facing<0 时取这条序列、不再叠加运行时镜像。
     for key, mirrored in (("walk", "walk_left"), ("run", "run_left")):
-        left_files = []
-        for index, name in enumerate(animations[key]["frames"]):
-            arr = np.asarray(Image.open(pet_dir / name).convert("RGBA"), dtype=np.uint8)
-            left_name = f"{key}_left_{index}.png"
-            Image.fromarray(np.ascontiguousarray(arr[:, ::-1]), "RGBA").save(
-                pet_dir / left_name, optimize=True
-            )
-            left_files.append(left_name)
-            written += 1
-        animations[mirrored] = {"fps": FPS[key], "frames": left_files}
+        animations[mirrored] = {
+            "fps": FPS[key],
+            "frames": list(animations[key]["frames"]),
+        }
 
     pack["animations"] = animations
     pack_path.write_text(json.dumps(pack, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

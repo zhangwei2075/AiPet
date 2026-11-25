@@ -1,7 +1,17 @@
 # tools
 
-- `make_builtin_pets.py`：用 PIL 生成内置宠物（橘子团子 / 薄荷麻薯 / 芋泥汤圆）的 6 种表情帧、
-  `petpack.json`，以及应用图标 `app_icon.png/ico`、托盘图标 `tray.ico`。
+- `make_builtin_pets.py`：用 PIL 生成内置宠物（橘子团子 / 薄荷麻薯 / 芋泥汤圆）的 6 种表情帧与
+  `petpack.json`。**不再生成应用图标**（图标已改为「有财」，见下一条），避免重跑时覆盖。
+
+- `make_youcai_icons.py`：从 `exports/有财/base.png` 幂等生成托盘 / 任务栏 / EXE 的
+  全部图标：`app/assets/icons/app_icon.png`（托盘 + logo）、`app_icon.ico`、`tray.ico`
+  以及 `app/windows/runner/resources/app_icon.ico`（`IDI_APP_ICON`，任务栏）。
+  8 帧多尺寸 ICO；≤32px 用头部特写与纯奶油底，小图标也看得清脸。
+  `--preview` 只把候选样式写到 `.tmp/icon-preview/`，不覆盖正式图标。
+
+```powershell
+services\petforge\.venv\Scripts\python.exe tools\make_youcai_icons.py
+```
 
 ```powershell
 python tools\make_builtin_pets.py

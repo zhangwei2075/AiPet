@@ -6,6 +6,33 @@ enum ChatBackendKind { local, openai }
 
 @immutable
 class AppSettings {
+
+  /// 在线聊天通道是否可用（openai 兼容后端 + 非空地址）。
+  bool get onlineAvailable =>
+      chatBackend == ChatBackendKind.openai && baseUrl.trim().isNotEmpty;
+
+  /// 是否走 OpenCode 网关（Go 订阅 / 按量付费）。
+  ///
+  /// OpenCode Go 要求每个请求带 `x-opencode-session` 稳定会话头，
+  /// 用于路由一致性和 prompt 缓存复用；缺失会影响缓存甚至被风控。
+  bool get isOpencodeGateway => baseUrl.toLowerCase().contains('opencode.ai/inference');
+
+  /// 派生稳定会话 ID：同一 Key + 地址永远得到同一个值。
+  ///
+  /// 不新增持久化字段的好处：跨重启稳定（缓存复用）、换 Key 自动换会话、
+  /// 不会把原始 Key 发到网关（只发 FNV-1a 哈希）。
+  /// 桌面宠物是单会话场景，一个 Key 一个 session 足够；多会话场景才需要
+  /// 把 sessionId 提升为独立字段。
+  String get opencodeSessionId {
+    var hash = 0x811c9dc5; // FNV-1a 32
+    final source = '$baseUrl|$apiKey';
+    for (final unit in source.codeUnits) {
+      hash ^= unit;
+      hash = (hash * 0x01000193) & 0xffffffff;
+    }
+    return 'ses_${hash.toRadixString(16).padLeft(8, '0')}';
+  }
+
   const AppSettings({
     this.activePetId,
     this.scale = 0.25,
@@ -14,12 +41,16 @@ class AppSettings {
     this.wander = true,
     this.autoSleep = true,
     this.proactive = true,
+    this.perceptionEnabled = true,
+    this.autonomyEnabled = true,
     this.chatBackend = ChatBackendKind.local,
+    this.apiProtocol = 'openai',
     this.baseUrl = 'http://127.0.0.1:11434/v1',
     this.apiKey = '',
     this.model = 'qwen2.5:3b',
     this.forgeUrl = 'http://127.0.0.1:8787',
     this.tts = false,
+    this.voice = 'default',
     this.updateManifestUrl = '',
     this.autoCheckUpdates = true,
     this.petWindowPosition,
@@ -38,7 +69,20 @@ class AppSettings {
   /// 空闲时按宠物性格主动搭话 / 讨食 / 求摸 / 小跑
   final bool proactive;
 
+  /// 环境感知（剪贴板 / 前台应用）总开关。M5 起默认开启（全权限方向），
+  /// 关闭后所有感知 Trigger 立即停止轮询；配额与静默由 QuietHours 配置。
+  final bool perceptionEnabled;
+
+  /// 自主执行总开关：允许智能体自己发起目标、多步调用工具、在后台持续推进。
+  /// 关掉后只响应主人当轮指令，不再自驱。
+  final bool autonomyEnabled;
+
   final ChatBackendKind chatBackend;
+
+  /// 在线接口协议：'openai'（/chat/completions）或 'anthropic'（/messages，
+  /// 百炼 / GLM / Kimi 的 Coding Plan 都兼容此协议）。
+  final String apiProtocol;
+
   final String baseUrl;
   final String apiKey;
   final String model;
@@ -47,6 +91,9 @@ class AppSettings {
   final String forgeUrl;
 
   final bool tts;
+
+  /// 朗读声线（default/gentle/lively/calm），由 SpeechService 映射成语速+音调。
+  final String voice;
 
   /// 版本检查接口（JSON）；留空表示关闭自动更新。
   final String updateManifestUrl;
@@ -68,12 +115,16 @@ class AppSettings {
     bool? wander,
     bool? autoSleep,
     bool? proactive,
+    bool? perceptionEnabled,
+    bool? autonomyEnabled,
     ChatBackendKind? chatBackend,
+    String? apiProtocol,
     String? baseUrl,
     String? apiKey,
     String? model,
     String? forgeUrl,
     bool? tts,
+    String? voice,
     String? updateManifestUrl,
     bool? autoCheckUpdates,
     String? petWindowPosition,
@@ -87,12 +138,16 @@ class AppSettings {
       wander: wander ?? this.wander,
       autoSleep: autoSleep ?? this.autoSleep,
       proactive: proactive ?? this.proactive,
+      perceptionEnabled: perceptionEnabled ?? this.perceptionEnabled,
+      autonomyEnabled: autonomyEnabled ?? this.autonomyEnabled,
       chatBackend: chatBackend ?? this.chatBackend,
+      apiProtocol: apiProtocol ?? this.apiProtocol,
       baseUrl: baseUrl ?? this.baseUrl,
       apiKey: apiKey ?? this.apiKey,
       model: model ?? this.model,
       forgeUrl: forgeUrl ?? this.forgeUrl,
       tts: tts ?? this.tts,
+      voice: voice ?? this.voice,
       updateManifestUrl: updateManifestUrl ?? this.updateManifestUrl,
       autoCheckUpdates: autoCheckUpdates ?? this.autoCheckUpdates,
       petWindowPosition: petWindowPosition ?? this.petWindowPosition,
@@ -108,12 +163,16 @@ class AppSettings {
         'wander': wander,
         'autoSleep': autoSleep,
         'proactive': proactive,
+        'perceptionEnabled': perceptionEnabled,
+        'autonomyEnabled': autonomyEnabled,
         'chatBackend': chatBackend.name,
+        'apiProtocol': apiProtocol,
         'baseUrl': baseUrl,
         'apiKey': apiKey,
         'model': model,
         'forgeUrl': forgeUrl,
         'tts': tts,
+        'voice': voice,
         'updateManifestUrl': updateManifestUrl,
         'autoCheckUpdates': autoCheckUpdates,
         'petWindowPosition': petWindowPosition,
@@ -142,12 +201,18 @@ class AppSettings {
       wander: _asBool(json['wander'], true),
       autoSleep: _asBool(json['autoSleep'], true),
       proactive: _asBool(json['proactive'], true),
+      perceptionEnabled: _asBool(json['perceptionEnabled'], true),
+      autonomyEnabled: _asBool(json['autonomyEnabled'], true),
       chatBackend: json['chatBackend'] == 'openai' ? ChatBackendKind.openai : ChatBackendKind.local,
+      apiProtocol: json['apiProtocol']?.toString() == 'anthropic' ? 'anthropic' : 'openai',
       baseUrl: _asString(json['baseUrl'], 'http://127.0.0.1:11434/v1'),
       apiKey: _asString(json['apiKey'], ''),
       model: _asString(json['model'], 'qwen2.5:3b'),
       forgeUrl: _asString(json['forgeUrl'], 'http://127.0.0.1:8787'),
       tts: _asBool(json['tts'], false),
+      voice: const {'default', 'gentle', 'lively', 'calm'}.contains(json['voice']?.toString())
+          ? json['voice'] as String
+          : 'default',
       updateManifestUrl: _asString(json['updateManifestUrl'], ''),
       autoCheckUpdates: _asBool(json['autoCheckUpdates'], true),
       petWindowPosition: (position == null || position.isEmpty) ? null : position,

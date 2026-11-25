@@ -2,6 +2,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
+import 'feature_help.dart';
 import 'theme.dart';
 
 class GlassCard extends StatelessWidget {
@@ -176,24 +177,32 @@ class SettingRow extends StatelessWidget {
     super.key,
     required this.title,
     this.subtitle,
+    this.help,
     required this.child,
   });
 
   final String title;
   final String? subtitle;
+
+  /// 功能说明：有值时整行悬停会显示 Tooltip，标题旁带 ⓘ 标记。
+  final String? help;
+
   final Widget child;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+    final row = Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
         children: [
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600)),
+                if (help == null)
+                  Text(title, style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600))
+                else
+                  helpTitle(title),
                 if (subtitle != null) ...[
                   const SizedBox(height: 2),
                   Text(
@@ -209,6 +218,9 @@ class SettingRow extends StatelessWidget {
         ],
       ),
     );
+    final description = help;
+    if (description == null) return row;
+    return FeatureHelp(label: title, description: description, child: row);
   }
 }
 

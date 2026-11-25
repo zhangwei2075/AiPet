@@ -6,6 +6,7 @@ import 'create_tab.dart';
 import 'gallery_tab.dart';
 import 'panel_chrome.dart';
 import 'settings_tab.dart';
+import 'theme.dart';
 
 class PanelView extends StatelessWidget {
   const PanelView({super.key, required this.controller});
@@ -57,16 +58,41 @@ class PanelView extends StatelessWidget {
 
     return Padding(
       padding: const EdgeInsets.all(10),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: Column(
         children: [
-          PanelSidebar(controller: controller, accent: accent),
-          const SizedBox(width: 12),
+          // 面板模式的拖动把手：宠物模式靠 pet_view 的拖拽手势，
+          // 面板模式下那套手势不在，必须给一个明确的抓手。
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onPanDown: (_) => controller.beginWindowDrag(),
+            child: SizedBox(
+              height: 18,
+              child: Center(
+                child: Container(
+                  width: 42,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.line,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+            ),
+          ),
           Expanded(
-            child: GlassCard(
-              padding: const EdgeInsets.fromLTRB(24, 20, 24, 20),
-              radius: 26,
-              child: content,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                PanelSidebar(controller: controller, accent: accent),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: GlassCard(
+                    padding: const EdgeInsets.fromLTRB(20, 14, 20, 14),
+                    radius: 26,
+                    child: content,
+                  ),
+                ),
+              ],
             ),
           ),
         ],

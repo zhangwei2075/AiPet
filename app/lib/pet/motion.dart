@@ -38,7 +38,30 @@ class PetPose {
       );
 }
 
-enum PetMotion { idle, hop, drag, drop, angry, sleepy, talk, pat, spin, walk, run, lie, eat }
+enum PetMotion {
+  idle,
+  hop,
+  drag,
+  drop,
+  angry,
+  sleepy,
+  talk,
+  pat,
+  spin,
+  walk,
+  run,
+  lie,
+  eat,
+
+  /// v2 交互动作：伸懒腰 / 开心摇尾 / 抖毛 / 汪汪叫 / 嗅探 / 作揖庆祝。
+  /// petpack 有同名序列时播逐帧动画，没有时退回这里的程序化姿态。
+  stretch,
+  wag,
+  shake,
+  bark,
+  sniff,
+  celebrate,
+}
 
 /// 纯函数动画引擎：不依赖 Flutter 渲染，方便单元测试。
 class MotionEngine {
@@ -78,6 +101,18 @@ class MotionEngine {
         return lie(time, phase);
       case PetMotion.eat:
         return eat(time, phase);
+      case PetMotion.stretch:
+        return stretch(progress);
+      case PetMotion.wag:
+        return wag(time);
+      case PetMotion.shake:
+        return shake(time);
+      case PetMotion.bark:
+        return bark(progress);
+      case PetMotion.sniff:
+        return sniff(time);
+      case PetMotion.celebrate:
+        return celebrate(progress);
     }
   }
 
@@ -89,6 +124,71 @@ class MotionEngine {
       offsetY: 3.5 * nod,
       scaleY: 1 - 0.018 * nod,
       rotation: 0.022 * math.sin(time * 9 + phase),
+    );
+  }
+
+  /// 伸懒腰 / play bow：前半下沉、中段保持、尾部收回。
+  /// 有逐帧序列时这层姿态只叠加 25%，由帧本身承担主要表现。
+  static PetPose stretch(double progress) {
+    final p = progress.clamp(0.0, 1.0);
+    final double d;
+    if (p < 0.3) {
+      final t = p / 0.3;
+      d = t * t * (3 - 2 * t);
+    } else if (p < 0.72) {
+      d = 1;
+    } else {
+      final t = (p - 0.72) / 0.28;
+      d = 1 - t * t * (3 - 2 * t);
+    }
+    return PetPose(
+      offsetY: 7 * d,
+      rotation: 0.10 * d,
+      scaleX: 1 + 0.05 * d,
+      scaleY: 1 - 0.055 * d,
+    );
+  }
+
+  /// 开心摇尾：小幅雀跃 + 左右轻摆。
+  static PetPose wag(double time) => PetPose(
+        offsetY: -3.2 * math.sin(time * 10).abs(),
+        rotation: 0.030 * math.sin(time * 10),
+        offsetX: 1.5 * math.sin(time * 10),
+      );
+
+  /// 抖毛：高频左右甩 + 轻微压缩舒张。
+  static PetPose shake(double time) => PetPose(
+        offsetX: 5.5 * math.sin(time * 26),
+        rotation: 0.045 * math.sin(time * 26),
+        scaleX: 1 + 0.015 * math.sin(time * 52),
+      );
+
+  /// 汪汪叫：两声，昂头挺胸后坐。
+  static PetPose bark(double progress) {
+    final e = math.pow(math.sin(progress * math.pi * 2).abs(), 0.7).toDouble();
+    return PetPose(
+      offsetY: -3.0 * e,
+      rotation: -0.035 * e,
+      offsetX: -2.5 * e,
+      scaleY: 1 + 0.02 * e,
+    );
+  }
+
+  /// 嗅探：低头下沉 + 高频嗅闻颤动。
+  static PetPose sniff(double time) => PetPose(
+        offsetY: 6 + 0.8 * math.sin(time * 18),
+        rotation: 0.05 + 0.008 * math.sin(time * 18),
+        scaleY: 1 - 0.02,
+      );
+
+  /// 作揖庆祝：前半坐起前爪上举，后半落回。
+  static PetPose celebrate(double progress) {
+    final rise = math.sin(math.pi * progress.clamp(0.0, 1.0));
+    return PetPose(
+      offsetY: -8 * rise,
+      rotation: -0.22 * rise,
+      scaleY: 1 - 0.03 * rise,
+      scaleX: 1 + 0.02 * rise,
     );
   }
 

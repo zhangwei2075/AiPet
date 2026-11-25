@@ -3,10 +3,16 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import '../models/model_presets.dart';
 import '../models/settings.dart';
+import '../services/speech_service.dart';
 import '../state/app_controller.dart';
 import 'common.dart';
+import 'feature_help.dart';
+import 'manage_page.dart';
 import 'theme.dart';
+
+import '../services/chat/openai_backend.dart';
 
 class SettingsTab extends StatefulWidget {
   const SettingsTab({super.key, required this.controller});
@@ -25,6 +31,8 @@ class SettingsTabState extends State<SettingsTab> {
   late final TextEditingController _updateUrl;
   Timer? _debounce;
   late double _scale;
+  bool _testingModel = false;
+  String? _modelTestResult;
 
   AppController get controller => widget.controller;
   AppSettings get settings => controller.settings;
@@ -60,10 +68,56 @@ class SettingsTabState extends State<SettingsTab> {
     _debounce = Timer(const Duration(milliseconds: 550), () => controller.updateSettings(next));
   }
 
-  void _applyPreset(String url, String model) {
-    _baseUrl.text = url;
-    _model.text = model;
-    _commit(settings.copyWith(baseUrl: url, model: model, chatBackend: ChatBackendKind.openai), immediate: true);
+  /// 一键套用预设：协议 / 地址 / 模型名一起写入，输入框同步刷新。
+  /// Key 不动（换服务商 Key 本来就不通用，但要让用户自己决定何时清）。
+  void _applyPreset(String id) {
+    final preset = presetById(id);
+    if (preset == null) return; // 「自定义」哨兵：不改任何字段
+    final next = preset.apply(settings);
+    _debounce?.cancel(); // 丢掉尚未落盘的输入框改动，避免覆盖预设
+    _baseUrl.text = next.baseUrl;
+    _model.text = next.model;
+    setState(() {
+      _modelTestResult = null;
+    });
+    _commit(next, immediate: true);
+  }
+
+  /// 协议切换后，测试连接必须走新协议 —— snapshot 要带上 apiProtocol，
+  /// 否则切到 Anthropic 后仍拿 openai 的 /chat/completions 去测，结果假的。
+  Future<void> _testModelConnection() async {
+    final pet = controller.active;
+    if (pet == null) {
+      setState(() => _modelTestResult = '还没有选中的宠物，先在画廊里选一只');
+      return;
+    }
+    // 取消尚未落盘的输入框防抖，否则测试中途旧值会被写回去。
+    _debounce?.cancel();
+    final snapshot = settings.copyWith(
+      baseUrl: _baseUrl.text.trim(),
+      model: _model.text.trim(),
+      apiKey: _apiKey.text.trim(),
+      apiProtocol: settings.apiProtocol, // 关键：协议必须跟着走
+      chatBackend: ChatBackendKind.openai,
+    );
+    setState(() {
+      _testingModel = true;
+      _modelTestResult = null;
+    });
+    await controller.updateSettings(snapshot);
+    try {
+      final reply = await OpenAiBackend().reply(
+        input: '请只回复两个字：正常',
+        pet: pet,
+        history: const [],
+        settings: snapshot,
+      );
+      setState(() => _modelTestResult = '连接成功：${reply.text}');
+    } catch (error) {
+      setState(() => _modelTestResult = '连接失败：$error');
+    } finally {
+      setState(() => _testingModel = false);
+    }
   }
 
   @override
@@ -72,9 +126,17 @@ class SettingsTabState extends State<SettingsTab> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('设置', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
-        const SizedBox(height: 3),
-        const Text('外观、对话模型和形象工坊', style: TextStyle(fontSize: 11.5, color: AppColors.inkSoft)),
+        Row(
+          children: [
+            const Text('设置', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
+            const Spacer(),
+            TextButton.icon(
+              icon: const Icon(Icons.tune_rounded, size: 15),
+              label: const Text('智能体', style: TextStyle(fontSize: 12)),
+              onPressed: () => ManagePage.open(context, controller),
+            ),
+          ],
+        ),
         const SizedBox(height: 12),
         Expanded(
           child: SingleChildScrollView(
@@ -89,6 +151,7 @@ class SettingsTabState extends State<SettingsTab> {
                       SettingRow(
                         title: '宠物大小',
                         subtitle: '当前 ${(_scale * 100).round()}%',
+                        help: '拖动调整桌面上宠物的显示尺寸，范围 15%–150%，改完立即生效并保存。',
                         child: SizedBox(
                           width: 190,
                           child: Slider(
@@ -104,7 +167,7 @@ class SettingsTabState extends State<SettingsTab> {
                       const Divider(),
                       SettingRow(
                         title: '始终置顶',
-                        subtitle: '宠物一直浮在其他窗口上方',
+                        help: '宠物窗口始终浮在其他程序窗口之上；关掉后会被普通窗口盖住，但不会消失。',
                         child: Switch(
                           value: settings.alwaysOnTop,
                           onChanged: (value) => _commit(settings.copyWith(alwaysOnTop: value), immediate: true),
@@ -112,7 +175,7 @@ class SettingsTabState extends State<SettingsTab> {
                       ),
                       SettingRow(
                         title: '鼠标穿透',
-                        subtitle: '宠物以外的透明区域不挡住鼠标点击',
+                        help: '开启后鼠标点击会穿过宠物落到下面的窗口，宠物不再拦截点击与拖动；托盘菜单里也能随时切换。',
                         child: Switch(
                           value: settings.clickThrough,
                           onChanged: (value) => _commit(settings.copyWith(clickThrough: value), immediate: true),
@@ -120,7 +183,7 @@ class SettingsTabState extends State<SettingsTab> {
                       ),
                       SettingRow(
                         title: '桌面散步',
-                        subtitle: '空闲时在桌面上走一小段',
+                        help: '宠物会按自身性格在屏幕上自主走动、切换动作；关掉后停在原地，只保留点击互动。',
                         child: Switch(
                           value: settings.wander,
                           onChanged: (value) => _commit(settings.copyWith(wander: value), immediate: true),
@@ -128,7 +191,7 @@ class SettingsTabState extends State<SettingsTab> {
                       ),
                       SettingRow(
                         title: '自动睡觉',
-                        subtitle: '90 秒没有互动就打个盹',
+                        help: '长时间没人互动时自动切到睡觉姿态，被点击或搭话后醒来；不影响提醒与自主任务。',
                         child: Switch(
                           value: settings.autoSleep,
                           onChanged: (value) => _commit(settings.copyWith(autoSleep: value), immediate: true),
@@ -136,18 +199,34 @@ class SettingsTabState extends State<SettingsTab> {
                       ),
                       SettingRow(
                         title: '主动互动',
-                        subtitle: '空闲时按性格搭话、讨食、求摸或小跑',
+                        help: '允许宠物按心情、时段与投机草稿主动冒泡搭话；关掉后只在你找它时回应，提醒仍会照常触发。',
                         child: Switch(
                           value: settings.proactive,
                           onChanged: (value) => _commit(settings.copyWith(proactive: value), immediate: true),
                         ),
                       ),
                       SettingRow(
-                        title: '朗读回复',
-                        subtitle: '用系统语音把宠物的话念出来',
+                        title: '环境感知',
+                        help: '轮询剪贴板模式（网址 / 英文 / 数字串）与前台窗口类别，用于主动提议；开启「自主执行」后还会把这些信号转成待办目标。原文不落盘。',
                         child: Switch(
-                          value: settings.tts,
-                          onChanged: (value) => _commit(settings.copyWith(tts: value), immediate: true),
+                          value: settings.perceptionEnabled,
+                          onChanged: (value) => _commit(settings.copyWith(perceptionEnabled: value), immediate: true),
+                        ),
+                      ),
+                      SettingRow(
+                        title: '完整本机权限',
+                        help: '一次授予 12 项本机能力（终端命令、进程、文件读写删、网络、窗口、键鼠、截屏、剪贴板、远程 MCP）。关掉后所有工具调用都会被权限层拦截，细粒度开关在「智能体 → 权限」里。',
+                        child: Switch(
+                          value: controller.fullAccess,
+                          onChanged: (value) => controller.setFullAccess(value),
+                        ),
+                      ),
+                      SettingRow(
+                        title: '自主执行',
+                        help: '开启目标队列与多步规划循环：可自己拆解步骤、调用工具、复盘，空闲 30 分钟还会发起只读巡检；关掉后只执行你当场下达的单条指令。目标重启后续跑。',
+                        child: Switch(
+                          value: settings.autonomyEnabled,
+                          onChanged: (value) => _commit(settings.copyWith(autonomyEnabled: value), immediate: true),
                         ),
                       ),
                       if (controller.isMobile)
@@ -156,6 +235,7 @@ class SettingsTabState extends State<SettingsTab> {
                           subtitle: Platform.isAndroid
                               ? '需要「显示在其他应用上层」权限；关闭 App 后仍会显示'
                               : 'iOS 系统限制，无法浮在其它 App 上方',
+                          help: '安卓上申请「显示在其他应用上层」权限，把宠物浮在别的应用上方；首次开启会跳转系统授权页。iOS 因系统限制不可用。',
                           child: Switch(
                             value: controller.overlayActive,
                             onChanged: Platform.isAndroid ? (_) => controller.toggleMobileOverlay() : null,
@@ -164,7 +244,7 @@ class SettingsTabState extends State<SettingsTab> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 18),
+                const SizedBox(height: 12),
                 const SectionLabel('对话'),
                 _card(
                   Column(
@@ -173,44 +253,77 @@ class SettingsTabState extends State<SettingsTab> {
                       Row(
                         children: [
                           Expanded(
-                            child: SegmentedButton<ChatBackendKind>(
-                              segments: const [
-                                ButtonSegment(value: ChatBackendKind.local, label: Text('本地小脑', style: TextStyle(fontSize: 12)), icon: Icon(Icons.offline_bolt_rounded, size: 15)),
-                                ButtonSegment(value: ChatBackendKind.openai, label: Text('在线模型', style: TextStyle(fontSize: 12)), icon: Icon(Icons.cloud_rounded, size: 15)),
-                              ],
-                              selected: {settings.chatBackend},
-                              showSelectedIcon: false,
-                              style: ButtonStyle(
-                                textStyle: const WidgetStatePropertyAll(TextStyle(fontSize: 12)),
-                                visualDensity: VisualDensity.compact,
-                                backgroundColor: WidgetStateProperty.resolveWith(
-                                  (states) => states.contains(WidgetState.selected) ? accent.withValues(alpha: 0.14) : Colors.transparent,
+                            child: FeatureHelp(
+                              label: '对话后端',
+                              description: '本地小脑：纯离线规则回复，不联网、不消耗模型额度。在线模型：把聊天与工具意图交给 OpenAI / Anthropic 兼容接口，多步自主规划也只在这档可用。',
+                              child: SegmentedButton<ChatBackendKind>(
+                                segments: const [
+                                  ButtonSegment(value: ChatBackendKind.local, label: Text('本地小脑', style: TextStyle(fontSize: 12)), icon: Icon(Icons.offline_bolt_rounded, size: 15)),
+                                  ButtonSegment(value: ChatBackendKind.openai, label: Text('在线模型', style: TextStyle(fontSize: 12)), icon: Icon(Icons.cloud_rounded, size: 15)),
+                                ],
+                                selected: {settings.chatBackend},
+                                showSelectedIcon: false,
+                                style: ButtonStyle(
+                                  textStyle: const WidgetStatePropertyAll(TextStyle(fontSize: 12)),
+                                  visualDensity: VisualDensity.compact,
+                                  backgroundColor: WidgetStateProperty.resolveWith(
+                                    (states) => states.contains(WidgetState.selected) ? accent.withValues(alpha: 0.14) : Colors.transparent,
+                                  ),
                                 ),
-                              ),
-                              onSelectionChanged: (value) => _commit(
-                                settings.copyWith(chatBackend: value.first),
-                                immediate: true,
+                                onSelectionChanged: (value) => _commit(
+                                  settings.copyWith(chatBackend: value.first),
+                                  immediate: true,
+                                ),
                               ),
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 6),
-                      const Text(
-                        '本地小脑完全离线；在线模型支持任意 OpenAI 兼容接口（OpenAI / DeepSeek / Ollama / LM Studio）。',
-                        style: TextStyle(fontSize: 10.5, color: AppColors.inkSoft, height: 1.5),
-                      ),
                       if (settings.chatBackend == ChatBackendKind.openai) ...[
                         const SizedBox(height: 14),
-                        Wrap(
-                          spacing: 6,
+                        _presetRow(),
+                        const Divider(),
+                        SettingRow(
+                          title: '接口协议',
+                          subtitle: settings.apiProtocol == 'anthropic' ? 'Anthropic 兼容（/messages）' : 'OpenAI 兼容（/chat/completions）',
+                          help: '选接口的消息格式：/chat/completions 或 /messages。注意：多步自主规划目前只在 OpenAI 兼容协议下生成，Anthropic 会退化为离线单步只读检查。',
+                          child: DropdownButton<String>(
+                            value: settings.apiProtocol,
+                            underline: const SizedBox.shrink(),
+                            items: const [
+                              DropdownMenuItem(value: 'openai', child: Text('OpenAI 兼容', style: TextStyle(fontSize: 12))),
+                              DropdownMenuItem(value: 'anthropic', child: Text('Anthropic 兼容', style: TextStyle(fontSize: 12))),
+                            ],
+                            onChanged: (value) {
+                              if (value == null) return;
+                              _commit(settings.copyWith(apiProtocol: value), immediate: true);
+                            },
+                          ),
+                        ),
+                        const Divider(),
+                        Row(
                           children: [
-                            PillButton(label: 'Ollama', dense: true, filled: false, onPressed: () => _applyPreset('http://127.0.0.1:11434/v1', 'qwen2.5:3b')),
-                            PillButton(label: 'DeepSeek', dense: true, filled: false, onPressed: () => _applyPreset('https://api.deepseek.com/v1', 'deepseek-chat')),
-                            PillButton(label: 'OpenAI', dense: true, filled: false, onPressed: () => _applyPreset('https://api.openai.com/v1', 'gpt-4o-mini')),
+                            PillButton(
+                              label: _testingModel ? '测试中…' : '测试连接',
+                              dense: true,
+                              filled: false,
+                              enabled: !_testingModel,
+                              onPressed: _testModelConnection,
+                            ),
+                            const SizedBox(width: 10),
+                            if (_modelTestResult != null)
+                              Expanded(
+                                child: Text(
+                                  _modelTestResult!,
+                                  style: TextStyle(
+                                    fontSize: 10.5,
+                                    color: _modelTestResult!.startsWith('连接成功') ? const Color(0xFF57B87A) : Colors.red.shade600,
+                                  ),
+                                ),
+                              ),
                           ],
                         ),
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 10),
                         _field('API 地址', _baseUrl, (value) => _commit(settings.copyWith(baseUrl: value.trim()))),
                         const SizedBox(height: 10),
                         _field('模型名', _model, (value) => _commit(settings.copyWith(model: value.trim()))),
@@ -225,7 +338,42 @@ class SettingsTabState extends State<SettingsTab> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 18),
+                const SizedBox(height: 12),
+                const SectionLabel('语音'),
+                _card(
+                  Column(
+                    children: [
+                      SettingRow(
+                        title: '朗读回复',
+                        help: '用系统语音把宠物的回复念出来（Windows SAPI / 移动端 TTS），声线可在下方选择；关掉后只显示文字气泡。',
+                        child: Switch(
+                          value: settings.tts,
+                          onChanged: (value) => _commit(settings.copyWith(tts: value), immediate: true),
+                        ),
+                      ),
+                      if (settings.tts)
+                        SettingRow(
+                          title: '声线',
+                          help: '切换朗读时的语气预设（默认 / 温柔 / 活泼 / 沉稳）。Windows SAPI 不支持直接调音色，这里通过语速与音量组合模拟。',
+                          child: DropdownButton<String>(
+                            value: settings.voice,
+                            underline: const SizedBox.shrink(),
+                            items: [
+                              for (final entry in SpeechService.voiceLabels.entries)
+                                DropdownMenuItem<String>(
+                                  value: entry.key,
+                                  child: Text(entry.value, style: const TextStyle(fontSize: 12)),
+                                ),
+                            ],
+                            onChanged: (value) {
+                              if (value != null) _commit(settings.copyWith(voice: value), immediate: true);
+                            },
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
                 const SectionLabel('形象工坊 PetForge'),
                 _card(
                   Column(
@@ -265,15 +413,10 @@ class SettingsTabState extends State<SettingsTab> {
                       ),
                       const SizedBox(height: 10),
                       _field('服务地址', _forgeUrl, (value) => _commit(settings.copyWith(forgeUrl: value.trim()))),
-                      const SizedBox(height: 8),
-                      const Text(
-                        '启动方式：进入 services/petforge，执行\npython -m pip install -r requirements.txt\npython -m petforge',
-                        style: TextStyle(fontSize: 10, height: 1.6, color: AppColors.inkSoft, fontFamily: 'Consolas'),
-                      ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 18),
+                const SizedBox(height: 12),
                 const SectionLabel('更新'),
                 _card(
                   Column(
@@ -303,7 +446,7 @@ class SettingsTabState extends State<SettingsTab> {
                       ),
                       SettingRow(
                         title: '启动时检查更新',
-                        subtitle: '需要先填写检查地址',
+                        help: '每次启动后请求上方填写的版本清单（JSON），发现新版本才提示下载；地址留空时本开关不生效。',
                         child: Switch(
                           value: settings.autoCheckUpdates,
                           onChanged: (value) => _commit(
@@ -356,12 +499,12 @@ class SettingsTabState extends State<SettingsTab> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 18),
+                const SizedBox(height: 12),
                 const SectionLabel('数据'),
                 _card(
                   SettingRow(
                     title: '清空对话记录',
-                    subtitle: '只删除聊天内容，宠物形象保留',
+                    help: '清掉当前聊天窗口里的历史消息，不会删除情景记忆、技能、目标队列或审计日志；操作不可撤销。',
                     child: PillButton(
                       label: '清空',
                       dense: true,
@@ -388,10 +531,75 @@ class SettingsTabState extends State<SettingsTab> {
     );
   }
 
+  /// 供应商 + 模型两级选择，复刻 DeepSeek Harness 的接入路径：
+  /// 选供应商 → 粘贴 Key → 从目录挑模型。协议/地址由供应商自动决定。
+  Widget _presetRow() {
+    final currentProvider = providerOf(settings);
+    final providerId = currentProvider?.id ?? customPresetId;
+    final modelId = findPresetId(settings);
+    // 供应商自定义时，模型下拉仍可用，但展示全部模型的平铺列表。
+    final catalog = currentProvider?.models ?? modelPresets;
+    final modelExists = catalog.any((p) => p.id == modelId);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SettingRow(
+          title: '供应商',
+          help: '一键套用该服务商的协议、接口地址与默认模型；切换会覆盖下方的地址与模型名，API Key 保持不动。选「自定义」可手填。',
+          child: DropdownButton<String>(
+            value: providerId,
+            underline: const SizedBox.shrink(),
+            items: [
+              const DropdownMenuItem<String>(
+                value: customPresetId,
+                child: Text('自定义', style: TextStyle(fontSize: 12)),
+              ),
+              ...modelProviders.map(
+                (item) => DropdownMenuItem<String>(
+                  value: item.id,
+                  child: Text(item.label.replaceAll('（订阅，一个 Key 多模型）', '')
+                      .replaceAll('（一个 Key 多模型）', ''),
+                      style: const TextStyle(fontSize: 12)),
+                ),
+              ),
+            ],
+            onChanged: (value) {
+              if (value == null || value == customPresetId) return;
+              final provider = providerById(value);
+              if (provider != null && provider.models.isNotEmpty) {
+                _applyPreset(provider.models.first.id);
+              }
+            },
+          ),
+        ),
+        SettingRow(
+          title: '模型',
+          help: '从当前供应商的模型目录里挑一个；切换会同时写入模型名与对应地址。列表外的模型可在下方「模型名」里手填。',
+          child: DropdownButton<String>(
+            value: modelExists ? modelId : catalog.first.id,
+            underline: const SizedBox.shrink(),
+            items: [
+              ...catalog.map(
+                (item) => DropdownMenuItem<String>(
+                  value: item.id,
+                  child: Text(item.label, style: const TextStyle(fontSize: 12)),
+                ),
+              ),
+            ],
+            onChanged: (value) {
+              if (value != null) _applyPreset(value);
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _card(Widget child) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.6),
         borderRadius: BorderRadius.circular(16),

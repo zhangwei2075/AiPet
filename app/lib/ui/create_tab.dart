@@ -69,7 +69,6 @@ class CreateTabState extends State<CreateTab> {
               children: [
                 Text('照片生成宠物', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
                 SizedBox(height: 3),
-                Text('一张照片 → 抠图贴纸 → 自动配色与性格', style: TextStyle(fontSize: 11.5, color: AppColors.inkSoft)),
               ],
             ),
             const Spacer(),
@@ -139,14 +138,6 @@ class CreateTabState extends State<CreateTab> {
                   const SizedBox(height: 14),
                   const Text('点击选择照片', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
                   const SizedBox(height: 6),
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 22),
-                    child: Text(
-                      '建议：主体清晰、背景干净的半身照 / 宠物照\n支持 JPG / PNG / WebP，最大 15MB',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 10.5, color: AppColors.inkSoft, height: 1.5),
-                    ),
-                  ),
                 ],
               ),
             )

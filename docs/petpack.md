@@ -62,6 +62,7 @@ pets/<petId>/
 
   // 逐帧动作：键必须和 PetMotion.name 对上，值是帧序列
   // 已支持：idle / walk / run / lie / hop / drop / spin / pat / talk / sleepy / angry / eat
+  //         stretch / wag / shake / bark / sniff / celebrate（v2 交互动作，见下文）
   // <motion>_left 是另一朝向的独立序列（对齐 Petdex 的 run-left 行）
   // fps 缺省 8；帧文件同样是相对本目录的文件名
   "animations": {
@@ -119,7 +120,8 @@ python -m petforge.cli photo.jpg -o out/ --name 小橘 --style sticker
 
 想有完整的 6 种表情，可以参考 `tools/make_builtin_pets.py`：
 它用 PIL 超采样绘制猫 / 兔，再调用 `petforge.pipeline.apply_sticker_style` 统一成描边贴纸风格，
-同时生成 `petpack.json` 与托盘 / 应用图标。
+同时生成 `petpack.json`。应用 / 托盘图标已独立由 `tools/make_youcai_icons.py`
+（「有财」形象）维护，这个脚本不再改动图标。
 
 ```powershell
 python tools\make_builtin_pets.py
@@ -134,8 +136,8 @@ python tools\make_builtin_pets.py
 
 `tools/generate_pet_motion_frames.py` 用 Pillow + numpy 对 `frames.idle` 做**分部件蒙皮**，
 幂等生成 idle / walk / run / hop / drop / lie / talk / eat / sleepy / angry / spin
-共 67 帧并写回 `petpack.json`（只覆盖自己管理的 11 个 key，附带 `walk_left` / `run_left`
-两条方向序列，不动性格 / 配色 / 其它字段），加上 16 张方向镜像帧一共 83 张图。
+共 111 帧并写回 `petpack.json`（覆盖自己管理的 17 个 key，附带 `walk_left` / `run_left`
+两条方向序列——它们直接引用朝左的同一批文件，不动性格 / 配色 / 其它字段）。
 只依赖 Pillow 与 numpy，不需要模型或 ComfyUI。
 
 ![有财动作帧](images/youcai-motion-frames.jpg)
@@ -192,9 +194,22 @@ Windows 上应用支持目录来自 `windows/runner/Runner.rc` 的 CompanyName /
   ④ **摆幅上限约 0.14 rad**（run 0.19）：椭圆遮罩固定、内容随腿旋转，
   摆幅一大腿的白描边就扫进 vacated 区域拖出弧形细丝，0.27 rad 实测明显，
   0.14 时脚掌位移约 10px、细丝藏进腿自身轮廓，摆动读感靠抬脚高度补。
-- **帧数**：idle 6 / walk 8 / run 8 / hop 5 / lie 6 / talk 4 / eat 6 / sleepy 6 /
-  angry 8 / spin 8，加上 `walk_left` / `run_left` 各 8 张镜像帧，共 83 帧，
-  与 Petdex 的状态行帧数一致。
+- **朝向约定（v2）**：侧面视角动作（walk / run / 六个新动作）合成后统一水平镜像成
+  **原画朝左**再落盘，对齐 Petdex 导入的翻转约定（见 `petdex_importer.dart`）；
+  `walk_left` / `run_left` 直接引用朝左的同一批文件（照片宠物只有一份侧面素材，
+  不存在独立绘制的第二朝向），App 端 `facing < 0` 时取这条序列、不再叠加运行时镜像。
+- **帧数（v2）**：idle 8 / walk 8 / run 8 / hop 5 / drop 2 / lie 6 / talk 4 / eat 6 /
+  sleepy 6 / angry 8 / spin 8，新动作 stretch 8 / wag 6 / shake 8 / bark 6 /
+  sniff 6 / celebrate 8，共 111 帧（`walk_left` / `run_left` 复用朝左文件不占额外帧）。
+- **v2 交互动作**：`stretch` 伸懒腰（play bow：胸口下沉前爪前伸，邀请玩耍）/
+  `wag` 开心摇尾（大摆尾 + 后躯晃）/ `shake` 抖毛（高频左右甩，耳后滞后甩更狠）/
+  `bark` 汪汪叫（双峰包络，张嘴昂头）/ `sniff` 嗅探（鼻尖贴地 + 高频颤动）/
+  `celebrate` 作揖庆祝（后腿坐起前爪上举，吃到零食用）。
+  全部合成在纯侧面底图上；petpack 没有这些序列时，`MotionEngine` 有同名的
+  程序化姿态兜底，任何宠物都能响应新交互。
+- **五官跟随（踩坑）**：嘴部椭圆落在头部椭圆的饱和权重区内，头部明显转动 / 位移时
+  嘴和耳朵必须继承头部的完整变换（angle + tx + ty），否则两层在同一区域互相拉扯出鬼影；
+  大位移（头部 ty ≥ 16px）还要给头 / 耳提 `gain` 1.3~1.5 饱和椭圆，消腾空残影。
 
 ![有财侧面走路与奔跑帧](images/youcai-side-gait.jpg)
 
